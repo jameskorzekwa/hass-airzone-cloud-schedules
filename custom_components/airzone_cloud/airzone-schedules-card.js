@@ -372,3 +372,11 @@ class AirzoneSchedulesCard extends HTMLElement {
 }
 
 customElements.define('airzone-schedules-card', AirzoneSchedulesCard);
+
+window.customCards = window.customCards || [];
+window.customCards.push({
+  type: "airzone-schedules-card",
+  name: "Airzone Schedules",
+  preview: true,
+  description: "Manage schedules for your Airzone Cloud installation"
+});
