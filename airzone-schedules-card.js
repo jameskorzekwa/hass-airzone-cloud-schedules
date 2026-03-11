@@ -7,12 +7,61 @@ const MODES = [
   { value: 5, label: 'Auto', icon: '🔄', color: '#9b59b6' },
 ];
 
+// Helper to extract a value from a schedule, trying multiple possible field names
+function _val(s, ...keys) {
+  for (const k of keys) {
+    if (s[k] !== undefined && s[k] !== null) return s[k];
+  }
+  return undefined;
+}
+
+function _getScheduleName(s) {
+  return _val(s, 'name', 'title', 'label') || 'Unnamed Schedule';
+}
+function _getScheduleActive(s) {
+  const v = _val(s, 'enabled', 'activated', 'active');
+  return v !== false && v !== 0;
+}
+function _getScheduleMode(s) {
+  // Could be in events, actions, or top-level
+  if (s.events && Array.isArray(s.events) && s.events.length > 0) {
+    return _val(s.events[0], 'mode') || 0;
+  }
+  return _val(s, 'mode') || 0;
+}
+function _getScheduleSetpoint(s) {
+  if (s.events && Array.isArray(s.events) && s.events.length > 0) {
+    return _val(s.events[0], 'setpoint', 'setpoint_temperature', 'temperature');
+  }
+  return _val(s, 'setpoint', 'setpoint_temperature', 'temperature');
+}
+function _getScheduleTime(s) {
+  if (s.events && Array.isArray(s.events) && s.events.length > 0) {
+    return _val(s.events[0], 'time', 'start_time', 'hour');
+  }
+  return _val(s, 'time', 'start_time', 'hour');
+}
+function _getScheduleDays(s) {
+  if (s.events && Array.isArray(s.events) && s.events.length > 0) {
+    return _val(s.events[0], 'days', 'daysOfWeek', 'week_days') || [];
+  }
+  return _val(s, 'days', 'daysOfWeek', 'week_days') || [];
+}
+function _getSchedulePower(s) {
+  if (s.events && Array.isArray(s.events) && s.events.length > 0) {
+    const v = _val(s.events[0], 'power', 'power_state');
+    return v !== false && v !== 0;
+  }
+  const v = _val(s, 'power', 'power_state');
+  return v !== false && v !== 0;
+}
+
 class AirzoneSchedulesCard extends HTMLElement {
   constructor() {
     super();
     this._hass = null;
     this._schedules = [];
-    this._editing = null;
+    this._rawData = null;
     this._initialized = false;
   }
 
@@ -71,39 +120,25 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-day { width:32px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:0.7em; font-weight:600; }
         .az-day-on { background:var(--az-primary); color:white; }
         .az-day-off { background:var(--az-border); color:var(--az-text2); }
-        .az-status { display:inline-flex; align-items:center; gap:4px; font-size:0.75em; padding:2px 8px; border-radius:10px; font-weight:500; }
-        .az-status-active { background:rgba(39,174,96,0.15); color:var(--az-success); }
-        .az-status-inactive { background:rgba(150,150,150,0.15); color:var(--az-text2); }
+        .az-loading { text-align:center; padding:32px; color:var(--az-text2); }
+        .az-spinner { display:inline-block; width:24px; height:24px; border:3px solid var(--az-border); border-top-color:var(--az-primary); border-radius:50%; animation:az-spin 0.8s linear infinite; }
+        @keyframes az-spin { to { transform:rotate(360deg); } }
+        .az-raw { padding:0 16px 14px; }
+        .az-raw-toggle { font-size:0.75em; color:var(--az-primary); cursor:pointer; text-decoration:underline; }
+        .az-raw-data { font-family:monospace; font-size:0.7em; background:var(--az-surface); border:1px solid var(--az-border); border-radius:8px; padding:8px; margin-top:6px; white-space:pre-wrap; word-break:break-all; max-height:200px; overflow-y:auto; color:var(--az-text2); display:none; }
 
-        /* Editor */
+        /* Editor overlay */
         .az-editor-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:999; display:flex; align-items:center; justify-content:center; }
-        .az-editor { background:var(--az-bg); border-radius:16px; width:90%; max-width:420px; max-height:85vh; overflow-y:auto; border:1px solid var(--az-border); box-shadow:0 20px 60px rgba(0,0,0,0.5); }
+        .az-editor { background:var(--az-bg); border-radius:16px; width:90%; max-width:480px; max-height:85vh; overflow-y:auto; border:1px solid var(--az-border); box-shadow:0 20px 60px rgba(0,0,0,0.5); }
         .az-editor-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--az-border); }
         .az-editor-header h3 { margin:0; font-size:1.05em; color:var(--az-text); }
         .az-editor-body { padding:20px; display:flex; flex-direction:column; gap:18px; }
         .az-field label { display:block; font-size:0.8em; font-weight:500; color:var(--az-text2); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px; }
-        .az-field input[type=text], .az-field input[type=number], .az-field input[type=time] { width:100%; padding:10px 12px; border:1px solid var(--az-border); border-radius:8px; background:var(--az-surface); color:var(--az-text); font-size:0.9em; box-sizing:border-box; outline:none; transition:border 0.2s; }
-        .az-field input:focus { border-color:var(--az-primary); }
-        .az-days-editor { display:flex; gap:6px; }
-        .az-day-btn { width:40px; height:36px; border:1px solid var(--az-border); border-radius:8px; background:transparent; color:var(--az-text2); font-size:0.8em; font-weight:600; cursor:pointer; transition:all 0.2s; }
-        .az-day-btn.active { background:var(--az-primary); color:white; border-color:var(--az-primary); }
-        .az-modes-editor { display:flex; gap:6px; flex-wrap:wrap; }
-        .az-mode-btn { padding:8px 14px; border:1px solid var(--az-border); border-radius:8px; background:transparent; color:var(--az-text); font-size:0.8em; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:4px; }
-        .az-mode-btn.active { border-color:var(--az-primary); background:rgba(74,144,217,0.15); }
+        .az-json-area { width:100%; min-height:200px; padding:10px; font-family:monospace; font-size:0.8em; border:1px solid var(--az-border); border-radius:8px; background:var(--az-surface); color:var(--az-text); box-sizing:border-box; resize:vertical; }
         .az-editor-footer { display:flex; justify-content:flex-end; gap:8px; padding:16px 20px; border-top:1px solid var(--az-border); }
-        .az-temp-row { display:flex; align-items:center; gap:12px; }
-        .az-temp-val { font-size:1.8em; font-weight:600; color:var(--az-text); min-width:70px; text-align:center; }
-        .az-temp-unit { font-size:0.5em; color:var(--az-text2); }
-        .az-temp-btn { width:36px; height:36px; border-radius:50%; border:1px solid var(--az-border); background:transparent; color:var(--az-text); font-size:1.2em; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; }
-        .az-temp-btn:hover { background:var(--az-primary); color:white; border-color:var(--az-primary); }
-        .az-power-row { display:flex; align-items:center; gap:12px; }
+        .az-editor-hint { font-size:0.75em; color:var(--az-text2); line-height:1.4; }
         .az-toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); padding:10px 20px; border-radius:8px; color:white; font-size:0.85em; z-index:1000; animation:az-fade-in 0.3s; }
         @keyframes az-fade-in { from { opacity:0; transform:translateX(-50%) translateY(10px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
-        .az-loading { text-align:center; padding:32px; color:var(--az-text2); }
-        .az-spinner { display:inline-block; width:24px; height:24px; border:3px solid var(--az-border); border-top-color:var(--az-primary); border-radius:50%; animation:az-spin 0.8s linear infinite; }
-        @keyframes az-spin { to { transform:rotate(360deg); } }
-        .az-adv-toggle { font-size:0.8em; color:var(--az-primary); cursor:pointer; text-decoration:underline; }
-        .az-json-area { width:100%; min-height:120px; padding:10px; font-family:monospace; font-size:0.8em; border:1px solid var(--az-border); border-radius:8px; background:var(--az-surface); color:var(--az-text); box-sizing:border-box; resize:vertical; }
       </style>
       <div class="az-header">
         <h2>📅 Airzone Schedules</h2>
@@ -129,11 +164,23 @@ class AirzoneSchedulesCard extends HTMLElement {
         type: 'call_service', domain: 'airzone_cloud', service: 'get_installation_schedules',
         service_data: { config_entry: this.config.config_entry }, return_response: true
       });
-      const data = resp.response && resp.response.schedules ? resp.response.schedules : {};
-      this._schedules = Object.entries(data).map(([id, s]) => ({ _id: id, ...s }));
+      this._rawData = resp.response || resp;
+      const data = (this._rawData && this._rawData.schedules) ? this._rawData.schedules : this._rawData || {};
+
+      // Schedules could be an object keyed by ID, an array, or nested
+      if (Array.isArray(data)) {
+        this._schedules = data.map((s, i) => ({ _id: s._id || s.id || String(i), ...s }));
+      } else if (typeof data === 'object') {
+        this._schedules = Object.entries(data).map(([id, s]) => {
+          if (typeof s === 'object' && s !== null) return { _id: id, ...s };
+          return { _id: id, value: s };
+        });
+      } else {
+        this._schedules = [];
+      }
       this._renderList();
     } catch (err) {
-      list.innerHTML = `<div class="az-empty"><div class="az-empty-icon">⚠️</div>Error loading schedules<br/><small>${err.message || ''}</small></div>`;
+      list.innerHTML = '<div class="az-empty"><div class="az-empty-icon">⚠️</div>Error loading schedules<br/><small>' + (err.message || '') + '</small></div>';
     }
   }
 
@@ -145,12 +192,14 @@ class AirzoneSchedulesCard extends HTMLElement {
     }
     list.innerHTML = '';
     for (const s of this._schedules) {
-      const mode = MODES.find(m => m.value === s.mode) || MODES[0];
-      const isActive = s.active !== false && s.activated !== false;
-      const days = s.daysOfWeek || s.days || [];
-      const time = s.time || '--:--';
-      const temp = s.setpoint != null ? s.setpoint : '—';
-      const name = s.name || 'Unnamed Schedule';
+      const modeVal = _getScheduleMode(s);
+      const mode = MODES.find(m => m.value === modeVal) || { icon: '📋', color: '#888', label: 'Unknown' };
+      const isActive = _getScheduleActive(s);
+      const days = _getScheduleDays(s);
+      const time = _getScheduleTime(s) || '—';
+      const temp = _getScheduleSetpoint(s);
+      const tempStr = temp != null ? temp + '°C' : '—';
+      const name = _getScheduleName(s);
 
       const el = document.createElement('div');
       el.className = 'az-schedule';
@@ -161,7 +210,7 @@ class AirzoneSchedulesCard extends HTMLElement {
             <div class="az-schedule-name">${name}</div>
             <div class="az-schedule-meta">
               <span>⏰ ${time}</span>
-              <span>🌡️ ${temp}°C</span>
+              <span>🌡️ ${tempStr}</span>
               <span>${mode.label}</span>
             </div>
           </div>
@@ -174,22 +223,51 @@ class AirzoneSchedulesCard extends HTMLElement {
             <button class="az-btn az-btn-danger az-btn-icon az-btn-sm az-del" data-id="${s._id}">🗑️</button>
           </div>
         </div>
-        <div class="az-days">${DAYS.map((d, i) => `<span class="az-day ${days.includes(i + 1) ? 'az-day-on' : 'az-day-off'}">${d}</span>`).join('')}</div>
+        ${days.length ? '<div class="az-days">' + DAYS.map((d, i) => '<span class="az-day ' + (days.includes(i + 1) ? 'az-day-on' : 'az-day-off') + '">' + d + '</span>').join('') + '</div>' : ''}
+        <div class="az-raw">
+          <span class="az-raw-toggle">▶ View raw data</span>
+          <div class="az-raw-data">${JSON.stringify(s, null, 2)}</div>
+        </div>
       `;
 
       el.querySelector('.az-edit').addEventListener('click', () => this._openEditor(s));
       el.querySelector('.az-del').addEventListener('click', () => this._deleteSchedule(s._id));
       el.querySelector('input[type=checkbox]').addEventListener('change', (e) => this._toggleSchedule(s, e.target.checked));
+      const rawToggle = el.querySelector('.az-raw-toggle');
+      const rawData = el.querySelector('.az-raw-data');
+      rawToggle.addEventListener('click', () => {
+        const open = rawData.style.display === 'block';
+        rawData.style.display = open ? 'none' : 'block';
+        rawToggle.textContent = open ? '▶ View raw data' : '▼ Hide raw data';
+      });
+
       list.appendChild(el);
     }
   }
 
   _openEditor(schedule) {
     const isNew = !schedule;
-    const s = schedule || { name: '', time: '08:00', mode: 1, setpoint: 22, daysOfWeek: [1,2,3,4,5], active: true, power: true };
-
     const overlay = document.createElement('div');
     overlay.className = 'az-editor-overlay';
+
+    // For editing, show the full schedule JSON so the user can modify any field.
+    // For new, show a template.
+    const template = isNew ? {
+      name: "New Schedule",
+      events: [{
+        days: [1,2,3,4,5],
+        time: "08:00",
+        mode: 1,
+        setpoint: 22,
+        power: true
+      }],
+      enabled: true
+    } : (() => {
+      const copy = Object.assign({}, schedule);
+      delete copy._id;
+      return copy;
+    })();
+
     overlay.innerHTML = `
       <div class="az-editor">
         <div class="az-editor-header">
@@ -198,48 +276,12 @@ class AirzoneSchedulesCard extends HTMLElement {
         </div>
         <div class="az-editor-body">
           <div class="az-field">
-            <label>Schedule Name</label>
-            <input type="text" id="ed-name" value="${s.name || ''}" placeholder="e.g. Morning Heating"/>
+            <label>Schedule Data (JSON)</label>
+            <textarea class="az-json-area" id="ed-json">${JSON.stringify(template, null, 2)}</textarea>
           </div>
-          <div class="az-field">
-            <label>Time</label>
-            <input type="time" id="ed-time" value="${s.time || '08:00'}"/>
-          </div>
-          <div class="az-field">
-            <label>Days</label>
-            <div class="az-days-editor" id="ed-days">
-              ${DAYS.map((d, i) => `<button class="az-day-btn ${(s.daysOfWeek || s.days || []).includes(i + 1) ? 'active' : ''}" data-day="${i + 1}">${d}</button>`).join('')}
-            </div>
-          </div>
-          <div class="az-field">
-            <label>Mode</label>
-            <div class="az-modes-editor" id="ed-modes">
-              ${MODES.map(m => `<button class="az-mode-btn ${(s.mode === m.value) ? 'active' : ''}" data-mode="${m.value}">${m.icon} ${m.label}</button>`).join('')}
-            </div>
-          </div>
-          <div class="az-field">
-            <label>Temperature Setpoint</label>
-            <div class="az-temp-row">
-              <button class="az-temp-btn" id="ed-temp-down">−</button>
-              <div class="az-temp-val"><span id="ed-temp-display">${s.setpoint != null ? s.setpoint : 22}</span><span class="az-temp-unit">°C</span></div>
-              <button class="az-temp-btn" id="ed-temp-up">+</button>
-            </div>
-          </div>
-          <div class="az-field">
-            <label>Power</label>
-            <div class="az-power-row">
-              <label class="az-schedule-toggle">
-                <input type="checkbox" id="ed-power" ${(s.power !== false) ? 'checked' : ''}/>
-                <span class="az-toggle-slider"></span>
-              </label>
-              <span style="font-size:0.85em; color:var(--az-text2)">Turn zone on with this schedule</span>
-            </div>
-          </div>
-          <div class="az-field">
-            <span class="az-adv-toggle" id="ed-adv-toggle">▶ Advanced: Edit raw JSON</span>
-            <div id="ed-adv" style="display:none; margin-top:8px;">
-              <textarea class="az-json-area" id="ed-json"></textarea>
-            </div>
+          <div class="az-editor-hint">
+            Edit the JSON above to modify the schedule. The exact fields depend on the Airzone API.
+            Common fields: <b>name</b>, <b>enabled</b>, <b>events</b> (array with <b>days</b>, <b>time</b>, <b>mode</b>, <b>setpoint</b>, <b>power</b>).
           </div>
         </div>
         <div class="az-editor-footer">
@@ -251,61 +293,13 @@ class AirzoneSchedulesCard extends HTMLElement {
 
     document.body.appendChild(overlay);
 
-    let tempVal = s.setpoint != null ? s.setpoint : 22;
-    let selectedMode = s.mode || 1;
-    let selectedDays = [...(s.daysOfWeek || s.days || [])];
-    let advOpen = false;
-
-    // Day buttons
-    overlay.querySelectorAll('.az-day-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const day = parseInt(btn.dataset.day);
-        if (selectedDays.includes(day)) { selectedDays = selectedDays.filter(d => d !== day); btn.classList.remove('active'); }
-        else { selectedDays.push(day); btn.classList.add('active'); }
-      });
-    });
-
-    // Mode buttons
-    overlay.querySelectorAll('.az-mode-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        overlay.querySelectorAll('.az-mode-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        selectedMode = parseInt(btn.dataset.mode);
-      });
-    });
-
-    // Temp buttons
-    const tempDisplay = overlay.querySelector('#ed-temp-display');
-    overlay.querySelector('#ed-temp-down').addEventListener('click', () => { tempVal = Math.max(15, tempVal - 0.5); tempDisplay.textContent = tempVal; });
-    overlay.querySelector('#ed-temp-up').addEventListener('click', () => { tempVal = Math.min(30, tempVal + 0.5); tempDisplay.textContent = tempVal; });
-
-    // Advanced toggle
-    overlay.querySelector('#ed-adv-toggle').addEventListener('click', () => {
-      advOpen = !advOpen;
-      const advEl = overlay.querySelector('#ed-adv');
-      const toggleEl = overlay.querySelector('#ed-adv-toggle');
-      advEl.style.display = advOpen ? 'block' : 'none';
-      toggleEl.textContent = advOpen ? '▼ Advanced: Edit raw JSON' : '▶ Advanced: Edit raw JSON';
-      if (advOpen) {
-        const built = this._buildPayload(overlay, selectedDays, selectedMode, tempVal, schedule);
-        overlay.querySelector('#ed-json').value = JSON.stringify(built, null, 2);
-      }
-    });
-
-    // Close
     overlay.querySelectorAll('.az-close').forEach(btn => btn.addEventListener('click', () => overlay.remove()));
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
 
-    // Save
     overlay.querySelector('#ed-save').addEventListener('click', async () => {
       let payload;
-      const advEl = overlay.querySelector('#ed-adv');
-      if (advOpen && advEl.style.display !== 'none') {
-        try { payload = JSON.parse(overlay.querySelector('#ed-json').value); }
-        catch (e) { this._toast('Invalid JSON', true); return; }
-      } else {
-        payload = this._buildPayload(overlay, selectedDays, selectedMode, tempVal, schedule);
-      }
+      try { payload = JSON.parse(overlay.querySelector('#ed-json').value); }
+      catch (e) { this._toast('Invalid JSON: ' + e.message, true); return; }
 
       try {
         if (isNew) {
@@ -327,35 +321,18 @@ class AirzoneSchedulesCard extends HTMLElement {
     });
   }
 
-  _buildPayload(overlay, selectedDays, selectedMode, tempVal, original) {
-    const name = overlay.querySelector('#ed-name').value.trim();
-    const time = overlay.querySelector('#ed-time').value;
-    const power = overlay.querySelector('#ed-power').checked;
-    const payload = {
-      name: name || 'Schedule',
-      time,
-      mode: selectedMode,
-      setpoint: tempVal,
-      daysOfWeek: selectedDays.sort(),
-      active: true,
-      power,
-    };
-    // Preserve any extra keys from the original
-    if (original) {
-      for (const key of Object.keys(original)) {
-        if (key !== '_id' && !(key in payload)) {
-          payload[key] = original[key];
-        }
-      }
-    }
-    return payload;
-  }
-
   async _toggleSchedule(schedule, active) {
+    // Try the global activate/deactivate endpoint via patch_installation_schedule
+    // Use the field names found in the original schedule data
+    const payload = {};
+    if ('enabled' in schedule) payload.enabled = active;
+    else if ('activated' in schedule) payload.activated = active;
+    else payload.enabled = active; // default guess
+
     try {
       await this._hass.callService('airzone_cloud', 'patch_installation_schedule', {
         config_entry: this.config.config_entry, schedule_id: schedule._id,
-        schedule_data: { active }
+        schedule_data: payload
       });
       this._toast(active ? 'Schedule enabled' : 'Schedule disabled');
       this._loadSchedules();
