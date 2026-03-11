@@ -52,3 +52,21 @@ Toggles the global active state for installation schedules.
 **Data:**
 - `config_entry`: Your integration Config ID.
 - `active`: Boolean (True/False) representing whether to enable or disable schedules globally.
+
+## Custom Lovelace UI Card
+
+To make editing schedules painless, this repository also includes a custom frontend card!
+
+### Installation
+1. Copy the `airzone-schedules-card.js` file from this repository into your Home Assistant's `config/www/` directory. (If the `www` directory does not exist, create it and restart Home Assistant).
+2. In Home Assistant, navigate to **Settings** -> **Dashboards** -> click the three dots in the top right -> **Resources**.
+3. Click "Add Resource".
+4. For the URL enter `/local/airzone-schedules-card.js` and set the type to **JavaScript Module**.
+5. Go to your Dashboard, Edit the Dashboard, and click **Add Card**. Scroll down to **Manual**.
+
+### Configuration Example
+Add the following YAML to your card, substituting your specific Config Entry ID. (You can find your Config Entry ID by examining the URL when clicking on the Integration inside Settings -> Integrations, or by creating a schedule entry manually in Developer Tools where the UI allows you to select your integration).
+```yaml
+type: custom:airzone-schedules-card
+config_entry: "YOUR_CONFIG_ENTRY_ID_HERE"
+```
