@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from aioairzone_cloud.cloudapi import AirzoneCloudApi
@@ -10,8 +11,11 @@ from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.const import CONF_ID, CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import aiohttp_client
+from homeassistant.helpers.typing import ConfigType
 
 from .coordinator import AirzoneCloudConfigEntry, AirzoneUpdateCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
@@ -23,7 +27,22 @@ PLATFORMS: list[Platform] = [
 ]
 
 CARD_URL = "/airzone_cloud/airzone-schedules-card.js"
-CARD_REGISTERED_KEY = "airzone_cloud_card_registered"
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up the Airzone Cloud component.
+
+    This registers the custom Lovelace card unconditionally,
+    before any config entries are loaded.
+    """
+    card_path = os.path.join(os.path.dirname(__file__), "airzone-schedules-card.js")
+    if os.path.isfile(card_path):
+        hass.http.register_static_path(CARD_URL, card_path, cache_headers=False)
+        add_extra_js_url(hass, CARD_URL)
+        _LOGGER.debug("Registered Airzone schedules card at %s", CARD_URL)
+    else:
+        _LOGGER.warning("Airzone schedules card JS not found at %s", card_path)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: AirzoneCloudConfigEntry) -> bool:
@@ -52,16 +71,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: AirzoneCloudConfigEntry)
     from .services import async_setup_services
 
     await async_setup_services(hass)
-
-    # Register the custom Lovelace card (only once across multiple entries)
-    if CARD_REGISTERED_KEY not in hass.data:
-        hass.data[CARD_REGISTERED_KEY] = True
-        hass.http.register_static_path(
-            CARD_URL,
-            os.path.join(os.path.dirname(__file__), "airzone-schedules-card.js"),
-            cache_headers=False,
-        )
-        add_extra_js_url(hass, CARD_URL)
 
     return True
 

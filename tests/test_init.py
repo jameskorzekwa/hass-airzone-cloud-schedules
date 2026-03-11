@@ -3,7 +3,6 @@
 from homeassistant.const import Platform
 
 from custom_components.airzone_cloud import (
-    CARD_REGISTERED_KEY,
     CARD_URL,
     PLATFORMS,
 )
@@ -24,11 +23,6 @@ class TestConstants:
         assert CARD_URL.startswith("/")
         assert CARD_URL.endswith(".js")
         assert "airzone" in CARD_URL
-
-    def test_card_registered_key(self):
-        """Test the card registered key is a string."""
-        assert isinstance(CARD_REGISTERED_KEY, str)
-        assert len(CARD_REGISTERED_KEY) > 0
 
 
 class TestNoDeleteAllService:
