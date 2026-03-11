@@ -49,6 +49,7 @@ PATCH_SCHEDULES_ACTIVATE_SCHEMA = vol.Schema(
     }
 )
 
+
 async def async_setup_services(hass: HomeAssistant) -> None:
     """Set up the Airzone Cloud Schedules services."""
 
@@ -91,7 +92,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Update an existing schedule."""
         _LOGGER.debug("patch_installation_schedule called for schedule_id=%s", call.data[ATTR_SCHEDULE_ID])
         airzone, installation = _get_api_and_installation(hass, call.data[ATTR_CONFIG_ENTRY])
-        res = await airzone.api_patch_installation_schedule(installation, call.data[ATTR_SCHEDULE_ID], call.data[ATTR_SCHEDULE_DATA])
+        res = await airzone.api_patch_installation_schedule(
+            installation, call.data[ATTR_SCHEDULE_ID], call.data[ATTR_SCHEDULE_DATA]
+        )
         return {"response": res}
 
     async def async_patch_installation_schedules_activate(call: ServiceCall) -> dict:

@@ -34,17 +34,11 @@ def mock_airzone(mock_installation):
     """Create a mock airzone API."""
     airzone = MagicMock()
     airzone.get_installation_id.return_value = mock_installation
-    airzone.api_get_installation_schedules = AsyncMock(
-        return_value={"schedule-1": {"name": "Morning", "active": True}}
-    )
+    airzone.api_get_installation_schedules = AsyncMock(return_value={"schedule-1": {"name": "Morning", "active": True}})
     airzone.api_delete_installation_schedule = AsyncMock(return_value={})
-    airzone.api_post_installation_schedule = AsyncMock(
-        return_value={"_id": "new-schedule-id"}
-    )
+    airzone.api_post_installation_schedule = AsyncMock(return_value={"_id": "new-schedule-id"})
     airzone.api_patch_installation_schedule = AsyncMock(return_value={"ok": True})
-    airzone.api_patch_installation_schedules_activate = AsyncMock(
-        return_value={"ok": True}
-    )
+    airzone.api_patch_installation_schedules_activate = AsyncMock(return_value={"ok": True})
     return airzone
 
 
@@ -134,9 +128,7 @@ class TestSchemaValidation:
     def test_patch_schedules_activate_schema_rejects_non_bool(self):
         """Test activate schema rejects non-boolean-like values."""
         with pytest.raises(vol.MultipleInvalid):
-            PATCH_SCHEDULES_ACTIVATE_SCHEMA(
-                {ATTR_CONFIG_ENTRY: "entry-123", ATTR_ACTIVE: [1, 2, 3]}
-            )
+            PATCH_SCHEDULES_ACTIVATE_SCHEMA({ATTR_CONFIG_ENTRY: "entry-123", ATTR_ACTIVE: [1, 2, 3]})
 
 
 class TestServiceRegistration:
@@ -147,10 +139,7 @@ class TestServiceRegistration:
         """Test all services are registered during setup."""
         await async_setup_services(mock_hass)
 
-        registered_services = [
-            call.args[1]
-            for call in mock_hass.services.async_register.call_args_list
-        ]
+        registered_services = [call.args[1] for call in mock_hass.services.async_register.call_args_list]
         assert "get_installation_schedules" in registered_services
         assert "delete_installation_schedule" in registered_services
         assert "post_installation_schedule" in registered_services
@@ -162,10 +151,7 @@ class TestServiceRegistration:
         """Test that the dangerous delete-all service is NOT registered."""
         await async_setup_services(mock_hass)
 
-        registered_services = [
-            call.args[1]
-            for call in mock_hass.services.async_register.call_args_list
-        ]
+        registered_services = [call.args[1] for call in mock_hass.services.async_register.call_args_list]
         assert "delete_installation_schedules" not in registered_services
 
 
@@ -185,9 +171,7 @@ class TestServiceHandlers:
 
         result = await handler(call)
 
-        mock_airzone.api_get_installation_schedules.assert_called_once_with(
-            mock_installation
-        )
+        mock_airzone.api_get_installation_schedules.assert_called_once_with(mock_installation)
         assert "schedules" in result
         assert result["schedules"]["schedule-1"]["name"] == "Morning"
 
@@ -205,9 +189,7 @@ class TestServiceHandlers:
 
         await handler(call)
 
-        mock_airzone.api_delete_installation_schedule.assert_called_once_with(
-            mock_installation, "sched-to-delete"
-        )
+        mock_airzone.api_delete_installation_schedule.assert_called_once_with(mock_installation, "sched-to-delete")
 
     @pytest.mark.asyncio
     async def test_post_schedule(self, mock_hass, mock_airzone, mock_installation):
@@ -224,9 +206,7 @@ class TestServiceHandlers:
 
         result = await handler(call)
 
-        mock_airzone.api_post_installation_schedule.assert_called_once_with(
-            mock_installation, schedule_data
-        )
+        mock_airzone.api_post_installation_schedule.assert_called_once_with(mock_installation, schedule_data)
         assert result["response"]["_id"] == "new-schedule-id"
 
     @pytest.mark.asyncio
@@ -251,42 +231,30 @@ class TestServiceHandlers:
         assert result["response"]["ok"] is True
 
     @pytest.mark.asyncio
-    async def test_activate_schedules(
-        self, mock_hass, mock_airzone, mock_installation
-    ):
+    async def test_activate_schedules(self, mock_hass, mock_airzone, mock_installation):
         """Test patch_installation_schedules_activate toggles activation."""
         await async_setup_services(mock_hass)
-        handler = self._get_handler(
-            mock_hass, "patch_installation_schedules_activate"
-        )
+        handler = self._get_handler(mock_hass, "patch_installation_schedules_activate")
 
         call = MagicMock(spec=ServiceCall)
         call.data = {ATTR_CONFIG_ENTRY: "test-entry-id", ATTR_ACTIVE: True}
 
         await handler(call)
 
-        mock_airzone.api_patch_installation_schedules_activate.assert_called_once_with(
-            mock_installation, True
-        )
+        mock_airzone.api_patch_installation_schedules_activate.assert_called_once_with(mock_installation, True)
 
     @pytest.mark.asyncio
-    async def test_deactivate_schedules(
-        self, mock_hass, mock_airzone, mock_installation
-    ):
+    async def test_deactivate_schedules(self, mock_hass, mock_airzone, mock_installation):
         """Test deactivating schedules."""
         await async_setup_services(mock_hass)
-        handler = self._get_handler(
-            mock_hass, "patch_installation_schedules_activate"
-        )
+        handler = self._get_handler(mock_hass, "patch_installation_schedules_activate")
 
         call = MagicMock(spec=ServiceCall)
         call.data = {ATTR_CONFIG_ENTRY: "test-entry-id", ATTR_ACTIVE: False}
 
         await handler(call)
 
-        mock_airzone.api_patch_installation_schedules_activate.assert_called_once_with(
-            mock_installation, False
-        )
+        mock_airzone.api_patch_installation_schedules_activate.assert_called_once_with(mock_installation, False)
 
     @pytest.mark.asyncio
     async def test_missing_config_entry_raises(self, mock_hass):
@@ -303,9 +271,7 @@ class TestServiceHandlers:
             await handler(call)
 
     @pytest.mark.asyncio
-    async def test_missing_installation_raises(
-        self, mock_hass, mock_airzone
-    ):
+    async def test_missing_installation_raises(self, mock_hass, mock_airzone):
         """Test that a missing installation raises HomeAssistantError."""
         mock_airzone.get_installation_id.return_value = None
 

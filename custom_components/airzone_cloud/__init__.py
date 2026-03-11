@@ -26,9 +26,7 @@ CARD_URL = "/airzone_cloud/airzone-schedules-card.js"
 CARD_REGISTERED_KEY = "airzone_cloud_card_registered"
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: AirzoneCloudConfigEntry
-) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: AirzoneCloudConfigEntry) -> bool:
     """Set up Airzone Cloud from a config entry."""
     options = ConnectionOptions(
         entry.data[CONF_USERNAME],
@@ -52,6 +50,7 @@ async def async_setup_entry(
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     from .services import async_setup_services
+
     await async_setup_services(hass)
 
     # Register the custom Lovelace card (only once across multiple entries)
@@ -67,9 +66,7 @@ async def async_setup_entry(
     return True
 
 
-async def async_unload_entry(
-    hass: HomeAssistant, entry: AirzoneCloudConfigEntry
-) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: AirzoneCloudConfigEntry) -> bool:
     """Unload a config entry."""
 
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
@@ -77,4 +74,3 @@ async def async_unload_entry(
         await coordinator.airzone.logout()
 
     return unload_ok
-
