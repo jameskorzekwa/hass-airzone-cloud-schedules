@@ -126,20 +126,20 @@ class AirzoneSchedulesCard extends HTMLElement {
         const item = document.createElement('div');
         item.className = 'schedule-item';
         
-        let headerText = value.name ? value.name : \`Schedule ID: \${key}\`;
+        let headerText = value.name ? value.name : `Schedule ID: ${key}`;
         
-        item.innerHTML = \`
+        item.innerHTML = `
           <div class="schedule-header">
-            <span>\${headerText}</span>
-            <span>\${value.activated === false ? '⏸ Disabled' : '▶ Active'}</span>
+            <span>${headerText}</span>
+            <span>${value.activated === false ? '⏸ Disabled' : '▶ Active'}</span>
           </div>
           <div style="font-size: 0.9em; color: var(--secondary-text-color);">
-            <pre style="margin:0; overflow-x: auto;">\${JSON.stringify(value, null, 2)}</pre>
+            <pre style="margin:0; overflow-x: auto;">${JSON.stringify(value, null, 2)}</pre>
           </div>
           <div class="schedule-actions">
-            <mwc-button outlined class="btn-edit" data-id="\${key}">Edit</mwc-button>
+            <mwc-button outlined class="btn-edit" data-id="${key}">Edit</mwc-button>
           </div>
-        \`;
+        `;
         
         item.querySelector('.btn-edit').addEventListener('click', (e) => {
           this.querySelector('#schedule-id-input').value = e.target.getAttribute('data-id');
@@ -149,7 +149,7 @@ class AirzoneSchedulesCard extends HTMLElement {
         listEl.appendChild(item);
       }
     } catch (err) {
-      listEl.innerHTML = \`<em>Error loading schedules: \${err.message || JSON.stringify(err)}</em>\`;
+      listEl.innerHTML = `<em>Error loading schedules: ${err.message || JSON.stringify(err)}</em>`;
     }
   }
 
