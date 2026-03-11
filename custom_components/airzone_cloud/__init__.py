@@ -36,9 +36,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     try:
         card_path = os.path.join(os.path.dirname(__file__), "airzone-schedules-card.js")
         if os.path.isfile(card_path):
-            hass.http.register_static_path(CARD_URL, card_path, cache_headers=False)
             from homeassistant.components.frontend import add_extra_js_url
+            from homeassistant.components.http import StaticPathConfig
 
+            await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, card_path, False)])
             add_extra_js_url(hass, CARD_URL)
             _LOGGER.debug("Registered Airzone schedules card at %s", CARD_URL)
         else:
