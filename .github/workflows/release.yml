@@ -134,7 +134,7 @@ jobs:
       - name: Create zip for HACS
         run: |
           cd custom_components/airzone_cloud
-          zip -r ../../airzone_cloud.zip .
+          zip -r ../../airzone_cloud.zip . -x "__pycache__/*" "*.pyc"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
