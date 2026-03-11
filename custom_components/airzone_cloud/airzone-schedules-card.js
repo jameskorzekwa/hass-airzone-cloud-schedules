@@ -30,8 +30,7 @@ class AirzoneSchedulesCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config.config_entry) throw new Error('You need to define a config_entry.');
-    this.config = config;
+    this.config = config || {};
   }
 
   _render() {
@@ -124,9 +123,10 @@ class AirzoneSchedulesCard extends HTMLElement {
     const list = this.querySelector('#az-list');
     list.innerHTML = '<div class="az-loading"><div class="az-spinner"></div><br/>Loading schedules…</div>';
     try {
+      const svcData = this.config.config_entry ? { config_entry: this.config.config_entry } : {};
       const resp = await this._hass.callWS({
         type: 'call_service', domain: 'airzone_cloud', service: 'get_installation_schedules',
-        service_data: { config_entry: this.config.config_entry }, return_response: true
+        service_data: svcData, return_response: true
       });
       const raw = resp.response || resp;
       const data = raw.schedules || raw;
@@ -313,15 +313,15 @@ class AirzoneSchedulesCard extends HTMLElement {
       };
 
       try {
+        const svcData = { schedule_data: payload };
+        if (this.config.config_entry) svcData.config_entry = this.config.config_entry;
+
         if (isNew) {
-          await this._hass.callService('airzone_cloud', 'post_installation_schedule', {
-            config_entry: this.config.config_entry, schedule_data: payload
-          });
+          await this._hass.callService('airzone_cloud', 'post_installation_schedule', svcData);
           this._toast('Schedule created!');
         } else {
-          await this._hass.callService('airzone_cloud', 'patch_installation_schedule', {
-            config_entry: this.config.config_entry, schedule_id: schedule._id, schedule_data: payload
-          });
+          svcData.schedule_id = schedule._id;
+          await this._hass.callService('airzone_cloud', 'patch_installation_schedule', svcData);
           this._toast('Schedule updated!');
         }
         overlay.remove();
@@ -334,10 +334,9 @@ class AirzoneSchedulesCard extends HTMLElement {
 
   async _toggleSchedule(schedule, active) {
     try {
-      await this._hass.callService('airzone_cloud', 'patch_installation_schedule', {
-        config_entry: this.config.config_entry, schedule_id: schedule._id,
-        schedule_data: { prog_enabled: active }
-      });
+      const svcData = { schedule_id: schedule._id, schedule_data: { prog_enabled: active } };
+      if (this.config.config_entry) svcData.config_entry = this.config.config_entry;
+      await this._hass.callService('airzone_cloud', 'patch_installation_schedule', svcData);
       this._toast(active ? 'Schedule enabled' : 'Schedule disabled');
       this._loadSchedules();
     } catch (err) {
@@ -349,9 +348,9 @@ class AirzoneSchedulesCard extends HTMLElement {
   async _deleteSchedule(id) {
     if (!confirm('Delete this schedule? This cannot be undone.')) return;
     try {
-      await this._hass.callService('airzone_cloud', 'delete_installation_schedule', {
-        config_entry: this.config.config_entry, schedule_id: id
-      });
+      const svcData = { schedule_id: id };
+      if (this.config.config_entry) svcData.config_entry = this.config.config_entry;
+      await this._hass.callService('airzone_cloud', 'delete_installation_schedule', svcData);
       this._toast('Schedule deleted');
       this._loadSchedules();
     } catch (err) {

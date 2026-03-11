@@ -16,27 +16,27 @@ ATTR_ACTIVE = "active"
 
 GET_SCHEDULES_SCHEMA = vol.Schema(
     {
-        vol.Required(ATTR_CONFIG_ENTRY): cv.string,
+        vol.Optional(ATTR_CONFIG_ENTRY): cv.string,
     }
 )
 
 DELETE_SCHEDULE_SCHEMA = vol.Schema(
     {
-        vol.Required(ATTR_CONFIG_ENTRY): cv.string,
+        vol.Optional(ATTR_CONFIG_ENTRY): cv.string,
         vol.Required(ATTR_SCHEDULE_ID): cv.string,
     }
 )
 
 POST_SCHEDULE_SCHEMA = vol.Schema(
     {
-        vol.Required(ATTR_CONFIG_ENTRY): cv.string,
+        vol.Optional(ATTR_CONFIG_ENTRY): cv.string,
         vol.Required(ATTR_SCHEDULE_DATA): dict,
     }
 )
 
 PATCH_SCHEDULE_SCHEMA = vol.Schema(
     {
-        vol.Required(ATTR_CONFIG_ENTRY): cv.string,
+        vol.Optional(ATTR_CONFIG_ENTRY): cv.string,
         vol.Required(ATTR_SCHEDULE_ID): cv.string,
         vol.Required(ATTR_SCHEDULE_DATA): dict,
     }
@@ -44,7 +44,7 @@ PATCH_SCHEDULE_SCHEMA = vol.Schema(
 
 PATCH_SCHEDULES_ACTIVATE_SCHEMA = vol.Schema(
     {
-        vol.Required(ATTR_CONFIG_ENTRY): cv.string,
+        vol.Optional(ATTR_CONFIG_ENTRY): cv.string,
         vol.Required(ATTR_ACTIVE): cv.boolean,
     }
 )
@@ -53,10 +53,17 @@ PATCH_SCHEDULES_ACTIVATE_SCHEMA = vol.Schema(
 async def async_setup_services(hass: HomeAssistant) -> None:
     """Set up the Airzone Cloud Schedules services."""
 
-    def _get_api_and_installation(hass: HomeAssistant, entry_id: str):
-        entry = hass.config_entries.async_get_entry(entry_id)
-        if not entry:
-            raise HomeAssistantError(f"Config entry {entry_id} not found")
+    def _get_api_and_installation(hass: HomeAssistant, entry_id: str | None = None):
+        if entry_id is None:
+            # If no config entry is provided, just use the first one found
+            entries = hass.config_entries.async_entries(DOMAIN)
+            if not entries:
+                raise HomeAssistantError("No Airzone Cloud config entries found")
+            entry = entries[0]
+        else:
+            entry = hass.config_entries.async_get_entry(entry_id)
+            if not entry:
+                raise HomeAssistantError(f"Config entry {entry_id} not found")
 
         coordinator = entry.runtime_data
         airzone = coordinator.airzone
@@ -70,7 +77,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def async_get_installation_schedules(call: ServiceCall) -> dict:
         """Get all schedules for the installation (read-only)."""
         _LOGGER.debug("get_installation_schedules called")
-        airzone, installation = _get_api_and_installation(hass, call.data[ATTR_CONFIG_ENTRY])
+        airzone, installation = _get_api_and_installation(hass, call.data.get(ATTR_CONFIG_ENTRY))
         res = await airzone.api_get_installation_schedules(installation)
         return {"schedules": res}
 
@@ -78,20 +85,20 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Delete a single schedule by ID."""
         schedule_id = call.data[ATTR_SCHEDULE_ID]
         _LOGGER.warning("delete_installation_schedule called for schedule_id=%s", schedule_id)
-        airzone, installation = _get_api_and_installation(hass, call.data[ATTR_CONFIG_ENTRY])
+        airzone, installation = _get_api_and_installation(hass, call.data.get(ATTR_CONFIG_ENTRY))
         await airzone.api_delete_installation_schedule(installation, schedule_id)
 
     async def async_post_installation_schedule(call: ServiceCall) -> dict:
         """Create a new schedule."""
         _LOGGER.debug("post_installation_schedule called")
-        airzone, installation = _get_api_and_installation(hass, call.data[ATTR_CONFIG_ENTRY])
+        airzone, installation = _get_api_and_installation(hass, call.data.get(ATTR_CONFIG_ENTRY))
         res = await airzone.api_post_installation_schedule(installation, call.data[ATTR_SCHEDULE_DATA])
         return {"response": res}
 
     async def async_patch_installation_schedule(call: ServiceCall) -> dict:
         """Update an existing schedule."""
         _LOGGER.debug("patch_installation_schedule called for schedule_id=%s", call.data[ATTR_SCHEDULE_ID])
-        airzone, installation = _get_api_and_installation(hass, call.data[ATTR_CONFIG_ENTRY])
+        airzone, installation = _get_api_and_installation(hass, call.data.get(ATTR_CONFIG_ENTRY))
         res = await airzone.api_patch_installation_schedule(
             installation, call.data[ATTR_SCHEDULE_ID], call.data[ATTR_SCHEDULE_DATA]
         )
@@ -100,7 +107,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def async_patch_installation_schedules_activate(call: ServiceCall) -> dict:
         """Activate or deactivate all schedules globally."""
         _LOGGER.debug("patch_installation_schedules_activate called with active=%s", call.data[ATTR_ACTIVE])
-        airzone, installation = _get_api_and_installation(hass, call.data[ATTR_CONFIG_ENTRY])
+        airzone, installation = _get_api_and_installation(hass, call.data.get(ATTR_CONFIG_ENTRY))
         res = await airzone.api_patch_installation_schedules_activate(installation, call.data[ATTR_ACTIVE])
         return {"response": res}
 

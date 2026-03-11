@@ -80,9 +80,9 @@ class TestSchemaValidation:
         assert result[ATTR_CONFIG_ENTRY] == "entry-123"
 
     def test_get_schedules_schema_missing_entry(self):
-        """Test get schedules schema fails without config_entry."""
-        with pytest.raises(vol.MultipleInvalid):
-            GET_SCHEDULES_SCHEMA({})
+        """Test get schedules schema allows missing config_entry."""
+        result = GET_SCHEDULES_SCHEMA({})
+        assert ATTR_CONFIG_ENTRY not in result
 
     def test_delete_schedule_schema_valid(self):
         """Test valid delete schedule schema."""
