@@ -1,0 +1,101 @@
+get_installation_schedules:
+  name: "Get Installation Schedules"
+  description: "Gets the schedules for an Airzone Cloud installation."
+  fields:
+    config_entry:
+      name: Config Entry
+      description: The ID of the Airzone Cloud integration config entry.
+      required: true
+      selector:
+        config_entry:
+          integration: airzone_cloud
+
+delete_installation_schedule:
+  name: "Delete Installation Schedule"
+  description: "Deletes a specific schedule from an Airzone Cloud installation."
+  fields:
+    config_entry:
+      name: Config Entry
+      description: The ID of the Airzone Cloud integration config entry.
+      required: true
+      selector:
+        config_entry:
+          integration: airzone_cloud
+    schedule_id:
+      name: Schedule ID
+      description: The ID of the schedule to delete.
+      required: true
+      selector:
+        text:
+
+delete_installation_schedules:
+  name: "Delete All Installation Schedules"
+  description: "Deletes all schedules from an Airzone Cloud installation."
+  fields:
+    config_entry:
+      name: Config Entry
+      description: The ID of the Airzone Cloud integration config entry.
+      required: true
+      selector:
+        config_entry:
+          integration: airzone_cloud
+
+post_installation_schedule:
+  name: "Create Installation Schedule"
+  description: "Creates a new schedule for an Airzone Cloud installation."
+  fields:
+    config_entry:
+      name: Config Entry
+      description: The ID of the Airzone Cloud integration config entry.
+      required: true
+      selector:
+        config_entry:
+          integration: airzone_cloud
+    schedule_data:
+      name: Schedule Data
+      description: The JSON object containing schedule parameters.
+      required: true
+      selector:
+        object:
+
+patch_installation_schedule:
+  name: "Update Installation Schedule"
+  description: "Updates an existing schedule for an Airzone Cloud installation."
+  fields:
+    config_entry:
+      name: Config Entry
+      description: The ID of the Airzone Cloud integration config entry.
+      required: true
+      selector:
+        config_entry:
+          integration: airzone_cloud
+    schedule_id:
+      name: Schedule ID
+      description: The ID of the schedule to update.
+      required: true
+      selector:
+        text:
+    schedule_data:
+      name: Schedule Data
+      description: The JSON object containing schedule parameters.
+      required: true
+      selector:
+        object:
+
+patch_installation_schedules_activate:
+  name: "Activate/Deactivate Schedules"
+  description: "Globally activates or deactivates schedules for an Airzone Cloud installation."
+  fields:
+    config_entry:
+      name: Config Entry
+      description: The ID of the Airzone Cloud integration config entry.
+      required: true
+      selector:
+        config_entry:
+          integration: airzone_cloud
+    active:
+      name: Active
+      description: Whether the schedules should be globally active.
+      required: true
+      selector:
+        boolean:
