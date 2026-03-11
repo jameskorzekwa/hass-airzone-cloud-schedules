@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import os
+
 from aioairzone_cloud.cloudapi import AirzoneCloudApi
 from aioairzone_cloud.common import ConnectionOptions
 
+from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.const import CONF_ID, CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import aiohttp_client
@@ -19,6 +22,9 @@ PLATFORMS: list[Platform] = [
     Platform.SWITCH,
     Platform.WATER_HEATER,
 ]
+
+CARD_URL = "/airzone_cloud/airzone-schedules-card.js"
+CARD_REGISTERED_KEY = "airzone_cloud_card_registered"
 
 
 async def async_setup_entry(
@@ -49,6 +55,16 @@ async def async_setup_entry(
     from .services import async_setup_services
     await async_setup_services(hass)
 
+    # Register the custom Lovelace card (only once across multiple entries)
+    if CARD_REGISTERED_KEY not in hass.data:
+        hass.data[CARD_REGISTERED_KEY] = True
+        hass.http.register_static_path(
+            CARD_URL,
+            os.path.join(os.path.dirname(__file__), "airzone-schedules-card.js"),
+            cache_headers=False,
+        )
+        add_extra_js_url(hass, CARD_URL)
+
     return True
 
 
@@ -62,3 +78,4 @@ async def async_unload_entry(
         await coordinator.airzone.logout()
 
     return unload_ok
+
