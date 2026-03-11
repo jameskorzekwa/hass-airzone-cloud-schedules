@@ -1,239 +1,393 @@
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const MODES = [
+  { value: 1, label: 'Heating', icon: '🔥', color: '#e74c3c' },
+  { value: 2, label: 'Cooling', icon: '❄️', color: '#3498db' },
+  { value: 3, label: 'Ventilation', icon: '💨', color: '#2ecc71' },
+  { value: 4, label: 'Dry', icon: '💧', color: '#f39c12' },
+  { value: 5, label: 'Auto', icon: '🔄', color: '#9b59b6' },
+];
+
 class AirzoneSchedulesCard extends HTMLElement {
+  constructor() {
+    super();
+    this._hass = null;
+    this._schedules = [];
+    this._editing = null;
+    this._initialized = false;
+  }
+
   set hass(hass) {
     this._hass = hass;
-    if (!this.content) {
-      this.innerHTML = `
-        <ha-card header="Airzone Schedules">
-          <div class="card-content">
-            <style>
-              .schedule-container {
-                display: flex;
-                flex-direction: column;
-                gap: 16px;
-              }
-              .schedule-item {
-                border: 1px solid var(--divider-color);
-                border-radius: 4px;
-                padding: 12px;
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-              }
-              .schedule-header {
-                font-weight: bold;
-                display: flex;
-                justify-content: space-between;
-              }
-              .schedule-actions {
-                display: flex;
-                gap: 8px;
-                margin-top: 8px;
-              }
-              .editor-section {
-                margin-top: 16px;
-                border-top: 1px solid var(--divider-color);
-                padding-top: 16px;
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-              }
-              textarea {
-                width: 100%;
-                height: 150px;
-                font-family: monospace;
-                resize: vertical;
-                background: var(--input-background-color, #fff);
-                color: var(--primary-text-color, #000);
-                border: 1px solid var(--divider-color, #ccc);
-                padding: 8px;
-              }
-              mwc-button {
-                --mdc-theme-primary: var(--primary-color);
-              }
-              #error-msg {
-                color: var(--error-color, red);
-              }
-            </style>
-            <div class="schedule-container" id="schedules-list">
-              <em>Loading schedules...</em>
-            </div>
-            
-            <div class="editor-section">
-              <span id="error-msg"></span>
-              <h4>Edit / Create Schedule</h4>
-              <p>Schedule ID (leave blank to create a new one):</p>
-              <input type="text" id="schedule-id-input" placeholder="e.g. 5f4e..." style="width:100%; padding: 4px;" />
-              
-              <p>Schedule Data JSON:</p>
-              <textarea id="schedule-data-input" placeholder='{\n  "name": "New Schedule",\n  "active": true\n}'></textarea>
-              <div class="schedule-actions">
-                <mwc-button raised id="btn-save">Save (POST/PATCH)</mwc-button>
-                <mwc-button id="btn-refresh">Refresh</mwc-button>
-                <mwc-button id="btn-delete" style="--mdc-theme-primary: var(--error-color, red);">Delete by ID</mwc-button>
-              </div>
-            </div>
-            
-            <div class="editor-section">
-              <h4>Global Controls</h4>
-              <mwc-button raised id="btn-enable-all">Enable All Schedules</mwc-button>
-              <mwc-button raised id="btn-disable-all" style="--mdc-theme-primary: var(--error-color, red);">Disable All</mwc-button>
-            </div>
-          </div>
-        </ha-card>
-      `;
-      this.content = this.querySelector('.card-content');
-      
-      this.querySelector('#btn-refresh').addEventListener('click', () => this.loadSchedules());
-      this.querySelector('#btn-save').addEventListener('click', () => this.saveSchedule());
-      this.querySelector('#btn-delete').addEventListener('click', () => this.deleteSchedule());
-      this.querySelector('#btn-enable-all').addEventListener('click', () => this.toggleAll(true));
-      this.querySelector('#btn-disable-all').addEventListener('click', () => this.toggleAll(false));
-      
-      this.loadSchedules();
+    if (!this._initialized) {
+      this._initialized = true;
+      this._render();
+      this._loadSchedules();
     }
   }
 
   setConfig(config) {
     if (!config.config_entry) {
-      throw new Error('You need to define a config_entry ID in this cards configuration.');
+      throw new Error('You need to define a config_entry in the card configuration.');
     }
     this.config = config;
   }
 
-  async loadSchedules() {
-    this.showError("");
-    const listEl = this.querySelector('#schedules-list');
-    listEl.innerHTML = '<em>Loading...</em>';
+  _render() {
+    this.innerHTML = '';
+    const card = document.createElement('ha-card');
+    card.innerHTML = `
+      <style>
+        :host { --az-primary: #4a90d9; --az-danger: #e74c3c; --az-success: #27ae60; --az-bg: var(--card-background-color, #1c1c1c); --az-surface: var(--primary-background-color, #252525); --az-text: var(--primary-text-color, #e0e0e0); --az-text2: var(--secondary-text-color, #999); --az-border: var(--divider-color, #333); }
+        .az-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px 12px; }
+        .az-header h2 { margin:0; font-size:1.2em; font-weight:600; color:var(--az-text); display:flex; align-items:center; gap:8px; }
+        .az-header-actions { display:flex; gap:8px; }
+        .az-btn { border:none; border-radius:8px; padding:8px 16px; font-size:0.85em; font-weight:500; cursor:pointer; transition:all 0.2s; display:inline-flex; align-items:center; gap:6px; }
+        .az-btn-primary { background:var(--az-primary); color:#fff; }
+        .az-btn-primary:hover { filter:brightness(1.15); }
+        .az-btn-outline { background:transparent; border:1px solid var(--az-border); color:var(--az-text); }
+        .az-btn-outline:hover { background:var(--az-surface); }
+        .az-btn-danger { background:transparent; border:1px solid var(--az-danger); color:var(--az-danger); }
+        .az-btn-danger:hover { background:rgba(231,76,60,0.1); }
+        .az-btn-sm { padding:6px 12px; font-size:0.8em; }
+        .az-btn-icon { padding:6px; min-width:32px; justify-content:center; }
+        .az-list { padding:0 16px 16px; display:flex; flex-direction:column; gap:10px; }
+        .az-empty { text-align:center; padding:32px 16px; color:var(--az-text2); }
+        .az-empty-icon { font-size:2.5em; margin-bottom:8px; }
+        .az-schedule { background:var(--az-surface); border-radius:12px; overflow:hidden; border:1px solid var(--az-border); transition:border-color 0.2s; }
+        .az-schedule:hover { border-color: var(--az-primary); }
+        .az-schedule-top { display:flex; align-items:center; padding:14px 16px; gap:12px; }
+        .az-schedule-icon { width:40px; height:40px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1.3em; flex-shrink:0; }
+        .az-schedule-info { flex:1; min-width:0; }
+        .az-schedule-name { font-weight:600; font-size:0.95em; color:var(--az-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .az-schedule-meta { font-size:0.8em; color:var(--az-text2); margin-top:2px; display:flex; gap:12px; flex-wrap:wrap; }
+        .az-schedule-toggle { position:relative; width:44px; height:24px; flex-shrink:0; }
+        .az-schedule-toggle input { opacity:0; width:0; height:0; }
+        .az-toggle-slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:#555; border-radius:24px; transition:0.3s; }
+        .az-toggle-slider:before { position:absolute; content:""; height:18px; width:18px; left:3px; bottom:3px; background:white; border-radius:50%; transition:0.3s; }
+        .az-schedule-toggle input:checked + .az-toggle-slider { background:var(--az-success); }
+        .az-schedule-toggle input:checked + .az-toggle-slider:before { transform:translateX(20px); }
+        .az-schedule-actions { display:flex; gap:6px; flex-shrink:0; }
+        .az-days { display:flex; gap:4px; padding:0 16px 14px; }
+        .az-day { width:32px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:0.7em; font-weight:600; }
+        .az-day-on { background:var(--az-primary); color:white; }
+        .az-day-off { background:var(--az-border); color:var(--az-text2); }
+        .az-status { display:inline-flex; align-items:center; gap:4px; font-size:0.75em; padding:2px 8px; border-radius:10px; font-weight:500; }
+        .az-status-active { background:rgba(39,174,96,0.15); color:var(--az-success); }
+        .az-status-inactive { background:rgba(150,150,150,0.15); color:var(--az-text2); }
+
+        /* Editor */
+        .az-editor-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:999; display:flex; align-items:center; justify-content:center; }
+        .az-editor { background:var(--az-bg); border-radius:16px; width:90%; max-width:420px; max-height:85vh; overflow-y:auto; border:1px solid var(--az-border); box-shadow:0 20px 60px rgba(0,0,0,0.5); }
+        .az-editor-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--az-border); }
+        .az-editor-header h3 { margin:0; font-size:1.05em; color:var(--az-text); }
+        .az-editor-body { padding:20px; display:flex; flex-direction:column; gap:18px; }
+        .az-field label { display:block; font-size:0.8em; font-weight:500; color:var(--az-text2); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px; }
+        .az-field input[type=text], .az-field input[type=number], .az-field input[type=time] { width:100%; padding:10px 12px; border:1px solid var(--az-border); border-radius:8px; background:var(--az-surface); color:var(--az-text); font-size:0.9em; box-sizing:border-box; outline:none; transition:border 0.2s; }
+        .az-field input:focus { border-color:var(--az-primary); }
+        .az-days-editor { display:flex; gap:6px; }
+        .az-day-btn { width:40px; height:36px; border:1px solid var(--az-border); border-radius:8px; background:transparent; color:var(--az-text2); font-size:0.8em; font-weight:600; cursor:pointer; transition:all 0.2s; }
+        .az-day-btn.active { background:var(--az-primary); color:white; border-color:var(--az-primary); }
+        .az-modes-editor { display:flex; gap:6px; flex-wrap:wrap; }
+        .az-mode-btn { padding:8px 14px; border:1px solid var(--az-border); border-radius:8px; background:transparent; color:var(--az-text); font-size:0.8em; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:4px; }
+        .az-mode-btn.active { border-color:var(--az-primary); background:rgba(74,144,217,0.15); }
+        .az-editor-footer { display:flex; justify-content:flex-end; gap:8px; padding:16px 20px; border-top:1px solid var(--az-border); }
+        .az-temp-row { display:flex; align-items:center; gap:12px; }
+        .az-temp-val { font-size:1.8em; font-weight:600; color:var(--az-text); min-width:70px; text-align:center; }
+        .az-temp-unit { font-size:0.5em; color:var(--az-text2); }
+        .az-temp-btn { width:36px; height:36px; border-radius:50%; border:1px solid var(--az-border); background:transparent; color:var(--az-text); font-size:1.2em; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; }
+        .az-temp-btn:hover { background:var(--az-primary); color:white; border-color:var(--az-primary); }
+        .az-power-row { display:flex; align-items:center; gap:12px; }
+        .az-toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); padding:10px 20px; border-radius:8px; color:white; font-size:0.85em; z-index:1000; animation:az-fade-in 0.3s; }
+        @keyframes az-fade-in { from { opacity:0; transform:translateX(-50%) translateY(10px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
+        .az-loading { text-align:center; padding:32px; color:var(--az-text2); }
+        .az-spinner { display:inline-block; width:24px; height:24px; border:3px solid var(--az-border); border-top-color:var(--az-primary); border-radius:50%; animation:az-spin 0.8s linear infinite; }
+        @keyframes az-spin { to { transform:rotate(360deg); } }
+        .az-adv-toggle { font-size:0.8em; color:var(--az-primary); cursor:pointer; text-decoration:underline; }
+        .az-json-area { width:100%; min-height:120px; padding:10px; font-family:monospace; font-size:0.8em; border:1px solid var(--az-border); border-radius:8px; background:var(--az-surface); color:var(--az-text); box-sizing:border-box; resize:vertical; }
+      </style>
+      <div class="az-header">
+        <h2>📅 Airzone Schedules</h2>
+        <div class="az-header-actions">
+          <button class="az-btn az-btn-outline az-btn-sm" id="az-refresh">↻ Refresh</button>
+          <button class="az-btn az-btn-primary az-btn-sm" id="az-add">+ New</button>
+        </div>
+      </div>
+      <div class="az-list" id="az-list">
+        <div class="az-loading"><div class="az-spinner"></div><br/>Loading schedules…</div>
+      </div>
+    `;
+    this.appendChild(card);
+    card.querySelector('#az-refresh').addEventListener('click', () => this._loadSchedules());
+    card.querySelector('#az-add').addEventListener('click', () => this._openEditor(null));
+  }
+
+  async _loadSchedules() {
+    const list = this.querySelector('#az-list');
+    list.innerHTML = '<div class="az-loading"><div class="az-spinner"></div><br/>Loading schedules…</div>';
     try {
-      const response = await this._hass.callWS({
-        type: 'call_service',
-        domain: 'airzone_cloud',
-        service: 'get_installation_schedules',
-        service_data: { config_entry: this.config.config_entry },
-        return_response: true
+      const resp = await this._hass.callWS({
+        type: 'call_service', domain: 'airzone_cloud', service: 'get_installation_schedules',
+        service_data: { config_entry: this.config.config_entry }, return_response: true
       });
-      
-      listEl.innerHTML = '';
-      const schedulesMap = response.response.schedules;
-      
-      if (!schedulesMap || Object.keys(schedulesMap).length === 0) {
-        listEl.innerHTML = '<em>No schedules found or could not be loaded.</em>';
-        return;
-      }
-
-      // Render dictionary
-      for (const [key, value] of Object.entries(schedulesMap)) {
-        const item = document.createElement('div');
-        item.className = 'schedule-item';
-        
-        let headerText = value.name ? value.name : `Schedule ID: ${key}`;
-        
-        item.innerHTML = `
-          <div class="schedule-header">
-            <span>${headerText}</span>
-            <span>${value.activated === false ? '⏸ Disabled' : '▶ Active'}</span>
-          </div>
-          <div style="font-size: 0.9em; color: var(--secondary-text-color);">
-            <pre style="margin:0; overflow-x: auto;">${JSON.stringify(value, null, 2)}</pre>
-          </div>
-          <div class="schedule-actions">
-            <mwc-button outlined class="btn-edit" data-id="${key}">Edit</mwc-button>
-          </div>
-        `;
-        
-        item.querySelector('.btn-edit').addEventListener('click', (e) => {
-          this.querySelector('#schedule-id-input').value = e.target.getAttribute('data-id');
-          this.querySelector('#schedule-data-input').value = JSON.stringify(value, null, 2);
-        });
-        
-        listEl.appendChild(item);
-      }
+      const data = resp.response && resp.response.schedules ? resp.response.schedules : {};
+      this._schedules = Object.entries(data).map(([id, s]) => ({ _id: id, ...s }));
+      this._renderList();
     } catch (err) {
-      listEl.innerHTML = `<em>Error loading schedules: ${err.message || JSON.stringify(err)}</em>`;
+      list.innerHTML = `<div class="az-empty"><div class="az-empty-icon">⚠️</div>Error loading schedules<br/><small>${err.message || ''}</small></div>`;
     }
   }
 
-  async saveSchedule() {
-    this.showError("");
-    const id = this.querySelector('#schedule-id-input').value.trim();
-    const dataStr = this.querySelector('#schedule-data-input').value.trim();
-    
-    let parsedData;
-    try {
-      parsedData = JSON.parse(dataStr);
-    } catch (e) {
-      this.showError("Invalid JSON in schedule data.");
+  _renderList() {
+    const list = this.querySelector('#az-list');
+    if (!this._schedules.length) {
+      list.innerHTML = '<div class="az-empty"><div class="az-empty-icon">📭</div>No schedules configured<br/><small>Click "+ New" to create one</small></div>';
       return;
     }
+    list.innerHTML = '';
+    for (const s of this._schedules) {
+      const mode = MODES.find(m => m.value === s.mode) || MODES[0];
+      const isActive = s.active !== false && s.activated !== false;
+      const days = s.daysOfWeek || s.days || [];
+      const time = s.time || '--:--';
+      const temp = s.setpoint != null ? s.setpoint : '—';
+      const name = s.name || 'Unnamed Schedule';
 
-    try {
-      if (id) {
-        // PATCH
-        await this._hass.callService('airzone_cloud', 'patch_installation_schedule', {
-          config_entry: this.config.config_entry,
-          schedule_id: id,
-          schedule_data: parsedData
-        });
+      const el = document.createElement('div');
+      el.className = 'az-schedule';
+      el.innerHTML = `
+        <div class="az-schedule-top">
+          <div class="az-schedule-icon" style="background:${mode.color}22; color:${mode.color}">${mode.icon}</div>
+          <div class="az-schedule-info">
+            <div class="az-schedule-name">${name}</div>
+            <div class="az-schedule-meta">
+              <span>⏰ ${time}</span>
+              <span>🌡️ ${temp}°C</span>
+              <span>${mode.label}</span>
+            </div>
+          </div>
+          <label class="az-schedule-toggle">
+            <input type="checkbox" ${isActive ? 'checked' : ''} data-id="${s._id}"/>
+            <span class="az-toggle-slider"></span>
+          </label>
+          <div class="az-schedule-actions">
+            <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-edit" data-id="${s._id}">✏️</button>
+            <button class="az-btn az-btn-danger az-btn-icon az-btn-sm az-del" data-id="${s._id}">🗑️</button>
+          </div>
+        </div>
+        <div class="az-days">${DAYS.map((d, i) => `<span class="az-day ${days.includes(i + 1) ? 'az-day-on' : 'az-day-off'}">${d}</span>`).join('')}</div>
+      `;
+
+      el.querySelector('.az-edit').addEventListener('click', () => this._openEditor(s));
+      el.querySelector('.az-del').addEventListener('click', () => this._deleteSchedule(s._id));
+      el.querySelector('input[type=checkbox]').addEventListener('change', (e) => this._toggleSchedule(s, e.target.checked));
+      list.appendChild(el);
+    }
+  }
+
+  _openEditor(schedule) {
+    const isNew = !schedule;
+    const s = schedule || { name: '', time: '08:00', mode: 1, setpoint: 22, daysOfWeek: [1,2,3,4,5], active: true, power: true };
+
+    const overlay = document.createElement('div');
+    overlay.className = 'az-editor-overlay';
+    overlay.innerHTML = `
+      <div class="az-editor">
+        <div class="az-editor-header">
+          <h3>${isNew ? '✨ New Schedule' : '✏️ Edit Schedule'}</h3>
+          <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-close">✕</button>
+        </div>
+        <div class="az-editor-body">
+          <div class="az-field">
+            <label>Schedule Name</label>
+            <input type="text" id="ed-name" value="${s.name || ''}" placeholder="e.g. Morning Heating"/>
+          </div>
+          <div class="az-field">
+            <label>Time</label>
+            <input type="time" id="ed-time" value="${s.time || '08:00'}"/>
+          </div>
+          <div class="az-field">
+            <label>Days</label>
+            <div class="az-days-editor" id="ed-days">
+              ${DAYS.map((d, i) => `<button class="az-day-btn ${(s.daysOfWeek || s.days || []).includes(i + 1) ? 'active' : ''}" data-day="${i + 1}">${d}</button>`).join('')}
+            </div>
+          </div>
+          <div class="az-field">
+            <label>Mode</label>
+            <div class="az-modes-editor" id="ed-modes">
+              ${MODES.map(m => `<button class="az-mode-btn ${(s.mode === m.value) ? 'active' : ''}" data-mode="${m.value}">${m.icon} ${m.label}</button>`).join('')}
+            </div>
+          </div>
+          <div class="az-field">
+            <label>Temperature Setpoint</label>
+            <div class="az-temp-row">
+              <button class="az-temp-btn" id="ed-temp-down">−</button>
+              <div class="az-temp-val"><span id="ed-temp-display">${s.setpoint != null ? s.setpoint : 22}</span><span class="az-temp-unit">°C</span></div>
+              <button class="az-temp-btn" id="ed-temp-up">+</button>
+            </div>
+          </div>
+          <div class="az-field">
+            <label>Power</label>
+            <div class="az-power-row">
+              <label class="az-schedule-toggle">
+                <input type="checkbox" id="ed-power" ${(s.power !== false) ? 'checked' : ''}/>
+                <span class="az-toggle-slider"></span>
+              </label>
+              <span style="font-size:0.85em; color:var(--az-text2)">Turn zone on with this schedule</span>
+            </div>
+          </div>
+          <div class="az-field">
+            <span class="az-adv-toggle" id="ed-adv-toggle">▶ Advanced: Edit raw JSON</span>
+            <div id="ed-adv" style="display:none; margin-top:8px;">
+              <textarea class="az-json-area" id="ed-json"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="az-editor-footer">
+          <button class="az-btn az-btn-outline az-close">Cancel</button>
+          <button class="az-btn az-btn-primary" id="ed-save">${isNew ? 'Create Schedule' : 'Save Changes'}</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    let tempVal = s.setpoint != null ? s.setpoint : 22;
+    let selectedMode = s.mode || 1;
+    let selectedDays = [...(s.daysOfWeek || s.days || [])];
+    let advOpen = false;
+
+    // Day buttons
+    overlay.querySelectorAll('.az-day-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const day = parseInt(btn.dataset.day);
+        if (selectedDays.includes(day)) { selectedDays = selectedDays.filter(d => d !== day); btn.classList.remove('active'); }
+        else { selectedDays.push(day); btn.classList.add('active'); }
+      });
+    });
+
+    // Mode buttons
+    overlay.querySelectorAll('.az-mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        overlay.querySelectorAll('.az-mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        selectedMode = parseInt(btn.dataset.mode);
+      });
+    });
+
+    // Temp buttons
+    const tempDisplay = overlay.querySelector('#ed-temp-display');
+    overlay.querySelector('#ed-temp-down').addEventListener('click', () => { tempVal = Math.max(15, tempVal - 0.5); tempDisplay.textContent = tempVal; });
+    overlay.querySelector('#ed-temp-up').addEventListener('click', () => { tempVal = Math.min(30, tempVal + 0.5); tempDisplay.textContent = tempVal; });
+
+    // Advanced toggle
+    overlay.querySelector('#ed-adv-toggle').addEventListener('click', () => {
+      advOpen = !advOpen;
+      const advEl = overlay.querySelector('#ed-adv');
+      const toggleEl = overlay.querySelector('#ed-adv-toggle');
+      advEl.style.display = advOpen ? 'block' : 'none';
+      toggleEl.textContent = advOpen ? '▼ Advanced: Edit raw JSON' : '▶ Advanced: Edit raw JSON';
+      if (advOpen) {
+        const built = this._buildPayload(overlay, selectedDays, selectedMode, tempVal, schedule);
+        overlay.querySelector('#ed-json').value = JSON.stringify(built, null, 2);
+      }
+    });
+
+    // Close
+    overlay.querySelectorAll('.az-close').forEach(btn => btn.addEventListener('click', () => overlay.remove()));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+    // Save
+    overlay.querySelector('#ed-save').addEventListener('click', async () => {
+      let payload;
+      const advEl = overlay.querySelector('#ed-adv');
+      if (advOpen && advEl.style.display !== 'none') {
+        try { payload = JSON.parse(overlay.querySelector('#ed-json').value); }
+        catch (e) { this._toast('Invalid JSON', true); return; }
       } else {
-        // POST
-        await this._hass.callService('airzone_cloud', 'post_installation_schedule', {
-          config_entry: this.config.config_entry,
-          schedule_data: parsedData
-        });
+        payload = this._buildPayload(overlay, selectedDays, selectedMode, tempVal, schedule);
       }
-      this.loadSchedules();
-      this.showError("Saved successfully!", "green");
+
+      try {
+        if (isNew) {
+          await this._hass.callService('airzone_cloud', 'post_installation_schedule', {
+            config_entry: this.config.config_entry, schedule_data: payload
+          });
+          this._toast('Schedule created!');
+        } else {
+          await this._hass.callService('airzone_cloud', 'patch_installation_schedule', {
+            config_entry: this.config.config_entry, schedule_id: schedule._id, schedule_data: payload
+          });
+          this._toast('Schedule updated!');
+        }
+        overlay.remove();
+        this._loadSchedules();
+      } catch (err) {
+        this._toast('Error: ' + (err.message || 'Unknown error'), true);
+      }
+    });
+  }
+
+  _buildPayload(overlay, selectedDays, selectedMode, tempVal, original) {
+    const name = overlay.querySelector('#ed-name').value.trim();
+    const time = overlay.querySelector('#ed-time').value;
+    const power = overlay.querySelector('#ed-power').checked;
+    const payload = {
+      name: name || 'Schedule',
+      time,
+      mode: selectedMode,
+      setpoint: tempVal,
+      daysOfWeek: selectedDays.sort(),
+      active: true,
+      power,
+    };
+    // Preserve any extra keys from the original
+    if (original) {
+      for (const key of Object.keys(original)) {
+        if (key !== '_id' && !(key in payload)) {
+          payload[key] = original[key];
+        }
+      }
+    }
+    return payload;
+  }
+
+  async _toggleSchedule(schedule, active) {
+    try {
+      await this._hass.callService('airzone_cloud', 'patch_installation_schedule', {
+        config_entry: this.config.config_entry, schedule_id: schedule._id,
+        schedule_data: { active }
+      });
+      this._toast(active ? 'Schedule enabled' : 'Schedule disabled');
+      this._loadSchedules();
     } catch (err) {
-      this.showError("Failed to save: " + (err.message || JSON.stringify(err)));
+      this._toast('Error: ' + (err.message || ''), true);
+      this._loadSchedules();
     }
   }
 
-  async deleteSchedule() {
-    this.showError("");
-    const id = this.querySelector('#schedule-id-input').value.trim();
-    if (!id) {
-      this.showError("Please specify a Schedule ID to delete.");
-      return;
-    }
-    
-    if (!confirm("Are you sure you want to delete schedule ID: " + id + "?")) return;
-    
+  async _deleteSchedule(id) {
+    if (!confirm('Delete this schedule? This cannot be undone.')) return;
     try {
       await this._hass.callService('airzone_cloud', 'delete_installation_schedule', {
-        config_entry: this.config.config_entry,
-        schedule_id: id
+        config_entry: this.config.config_entry, schedule_id: id
       });
-      this.querySelector('#schedule-id-input').value = "";
-      this.querySelector('#schedule-data-input').value = "";
-      this.loadSchedules();
-      this.showError("Deleted successfully!", "green");
+      this._toast('Schedule deleted');
+      this._loadSchedules();
     } catch (err) {
-      this.showError("Failed to delete: " + (err.message || JSON.stringify(err)));
+      this._toast('Error: ' + (err.message || ''), true);
     }
   }
 
-  async toggleAll(active) {
-    this.showError("");
-    try {
-      await this._hass.callService('airzone_cloud', 'patch_installation_schedules_activate', {
-        config_entry: this.config.config_entry,
-        active: active
-      });
-      this.loadSchedules();
-    } catch (err) {
-      this.showError("Failed to toggle schedules: " + (err.message || JSON.stringify(err)));
-    }
+  _toast(msg, error = false) {
+    const t = document.createElement('div');
+    t.className = 'az-toast';
+    t.style.background = error ? '#e74c3c' : '#27ae60';
+    t.textContent = msg;
+    this.appendChild(t);
+    setTimeout(() => t.remove(), 3000);
   }
 
-  showError(msg, color = "var(--error-color, red)") {
-    const el = this.querySelector('#error-msg');
-    el.style.color = color;
-    el.innerText = msg;
-  }
-
-  getCardSize() {
-    return 6;
-  }
+  getCardSize() { return 4; }
 }
 
 customElements.define('airzone-schedules-card', AirzoneSchedulesCard);
