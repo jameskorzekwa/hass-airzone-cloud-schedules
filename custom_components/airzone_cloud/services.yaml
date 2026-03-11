@@ -28,17 +28,6 @@ delete_installation_schedule:
       selector:
         text:
 
-delete_installation_schedules:
-  name: "Delete All Installation Schedules"
-  description: "Deletes all schedules from an Airzone Cloud installation."
-  fields:
-    config_entry:
-      name: Config Entry
-      description: The ID of the Airzone Cloud integration config entry.
-      required: true
-      selector:
-        config_entry:
-          integration: airzone_cloud
 
 post_installation_schedule:
   name: "Create Installation Schedule"

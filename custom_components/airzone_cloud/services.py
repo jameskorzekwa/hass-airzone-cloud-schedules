@@ -1,3 +1,5 @@
+import logging
+
 import voluptuous as vol
 
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
@@ -5,6 +7,8 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.exceptions import HomeAssistantError
 
 from .coordinator import AirzoneCloudConfigEntry
+
+_LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "airzone_cloud"
 
@@ -23,12 +27,6 @@ DELETE_SCHEDULE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_CONFIG_ENTRY): cv.string,
         vol.Required(ATTR_SCHEDULE_ID): cv.string,
-    }
-)
-
-DELETE_SCHEDULES_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_CONFIG_ENTRY): cv.string,
     }
 )
 
@@ -72,29 +70,36 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         return airzone, installation
 
     async def async_get_installation_schedules(call: ServiceCall) -> dict:
+        """Get all schedules for the installation (read-only)."""
+        _LOGGER.debug("get_installation_schedules called")
         airzone, installation = _get_api_and_installation(hass, call.data[ATTR_CONFIG_ENTRY])
         res = await airzone.api_get_installation_schedules(installation)
         return {"schedules": res}
 
     async def async_delete_installation_schedule(call: ServiceCall) -> None:
+        """Delete a single schedule by ID."""
+        schedule_id = call.data[ATTR_SCHEDULE_ID]
+        _LOGGER.warning("delete_installation_schedule called for schedule_id=%s", schedule_id)
         airzone, installation = _get_api_and_installation(hass, call.data[ATTR_CONFIG_ENTRY])
-        await airzone.api_delete_installation_schedule(installation, call.data[ATTR_SCHEDULE_ID])
-
-    async def async_delete_installation_schedules(call: ServiceCall) -> None:
-        airzone, installation = _get_api_and_installation(hass, call.data[ATTR_CONFIG_ENTRY])
-        await airzone.api_delete_installation_schedules(installation)
+        await airzone.api_delete_installation_schedule(installation, schedule_id)
 
     async def async_post_installation_schedule(call: ServiceCall) -> dict:
+        """Create a new schedule."""
+        _LOGGER.debug("post_installation_schedule called")
         airzone, installation = _get_api_and_installation(hass, call.data[ATTR_CONFIG_ENTRY])
         res = await airzone.api_post_installation_schedule(installation, call.data[ATTR_SCHEDULE_DATA])
         return {"response": res}
 
     async def async_patch_installation_schedule(call: ServiceCall) -> dict:
+        """Update an existing schedule."""
+        _LOGGER.debug("patch_installation_schedule called for schedule_id=%s", call.data[ATTR_SCHEDULE_ID])
         airzone, installation = _get_api_and_installation(hass, call.data[ATTR_CONFIG_ENTRY])
         res = await airzone.api_patch_installation_schedule(installation, call.data[ATTR_SCHEDULE_ID], call.data[ATTR_SCHEDULE_DATA])
         return {"response": res}
 
     async def async_patch_installation_schedules_activate(call: ServiceCall) -> dict:
+        """Activate or deactivate all schedules globally."""
+        _LOGGER.debug("patch_installation_schedules_activate called with active=%s", call.data[ATTR_ACTIVE])
         airzone, installation = _get_api_and_installation(hass, call.data[ATTR_CONFIG_ENTRY])
         res = await airzone.api_patch_installation_schedules_activate(installation, call.data[ATTR_ACTIVE])
         return {"response": res}
@@ -114,12 +119,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         schema=DELETE_SCHEDULE_SCHEMA,
     )
 
-    hass.services.async_register(
-        DOMAIN,
-        "delete_installation_schedules",
-        async_delete_installation_schedules,
-        schema=DELETE_SCHEDULES_SCHEMA,
-    )
+    # NOTE: "delete_installation_schedules" (delete ALL) has been intentionally
+    # removed. It is far too dangerous to expose as a service with no
+    # confirmation mechanism. Use single-delete instead.
 
     hass.services.async_register(
         DOMAIN,
