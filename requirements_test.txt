@@ -1,0 +1,7 @@
+homeassistant
+pytest
+pytest-asyncio
+pytest-cov
+ruff
+voluptuous
+aioairzone-cloud @ git+https://github.com/jameskorzekwa/aioairzone-cloud.git

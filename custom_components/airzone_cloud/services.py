@@ -1,12 +1,9 @@
 import logging
 
 import voluptuous as vol
-
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
-from homeassistant.helpers import config_validation as cv
 from homeassistant.exceptions import HomeAssistantError
-
-from .coordinator import AirzoneCloudConfigEntry
+from homeassistant.helpers import config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,14 +56,14 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         entry = hass.config_entries.async_get_entry(entry_id)
         if not entry:
             raise HomeAssistantError(f"Config entry {entry_id} not found")
-        
+
         coordinator = entry.runtime_data
         airzone = coordinator.airzone
         installation = airzone.get_installation_id(entry.data["id"])
-        
+
         if not installation:
             raise HomeAssistantError("Installation not found")
-            
+
         return airzone, installation
 
     async def async_get_installation_schedules(call: ServiceCall) -> dict:

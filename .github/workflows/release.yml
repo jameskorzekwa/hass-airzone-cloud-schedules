@@ -1,7 +1,10 @@
-name: Release
+name: CI & Release
 
 on:
   push:
+    branches:
+      - main
+  pull_request:
     branches:
       - main
 
@@ -9,7 +12,85 @@ permissions:
   contents: write
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Ruff check
+        run: ruff check custom_components/ tests/
+
+      - name: Ruff format check
+        run: ruff format --check custom_components/ tests/
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements_test.txt
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ -v --tb=short --cov=custom_components --cov-report=term-missing
+
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate manifest.json
+        run: |
+          python -c "
+          import json, sys
+          with open('custom_components/airzone_cloud/manifest.json') as f:
+              m = json.load(f)
+          required = ['domain', 'name', 'version', 'requirements']
+          for key in required:
+              if key not in m:
+                  print(f'Missing required key: {key}')
+                  sys.exit(1)
+          print(f'Manifest OK: {m[\"domain\"]} v{m[\"version\"]}')
+          "
+
+      - name: Validate hacs.json
+        run: |
+          python -c "
+          import json
+          with open('hacs.json') as f:
+              h = json.load(f)
+          print(f'HACS config OK: {h[\"name\"]}')
+          "
+
+      - name: Validate JS syntax
+        run: node -c custom_components/airzone_cloud/airzone-schedules-card.js
+
   release:
+    name: Release
+    needs: [lint, test, validate]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -31,7 +112,6 @@ jobs:
           PATCH=$((PATCH + 1))
           NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
           echo "new=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-          # Update manifest.json
           jq --arg v "$NEW_VERSION" '.version = $v' custom_components/airzone_cloud/manifest.json > tmp.json
           mv tmp.json custom_components/airzone_cloud/manifest.json
 
