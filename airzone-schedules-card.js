@@ -334,11 +334,19 @@ class AirzoneSchedulesCard extends HTMLElement {
 
   async _toggleSchedule(schedule, active) {
     try {
+      const sc = schedule.start_conf || {};
       const payload = {
         name: schedule.name || 'Schedule',
         type: schedule.type || 'week',
         prog_enabled: active,
-        start_conf: schedule.start_conf || {},
+        start_conf: {
+          mode: sc.mode,
+          pspeed: sc.pspeed,
+          setpoint: sc.setpoint ? { celsius: sc.setpoint.celsius, fah: sc.setpoint.fah } : undefined,
+          days: sc.days,
+          hour: sc.hour,
+          minutes: sc.minutes,
+        },
         device_ids: schedule.device_ids || [],
       };
       await this._hass.callService('airzone_cloud', 'patch_installation_schedule', {

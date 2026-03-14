@@ -99,6 +99,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Update an existing schedule."""
         schedule_id = call.data[ATTR_SCHEDULE_ID]
         schedule_data = call.data[ATTR_SCHEDULE_DATA]
+        # Strip any keys with None/undefined values to avoid sending nulls to the API
+        if "start_conf" in schedule_data and isinstance(schedule_data["start_conf"], dict):
+            schedule_data["start_conf"] = {k: v for k, v in schedule_data["start_conf"].items() if v is not None}
         _LOGGER.warning("patch_installation_schedule: id=%s data=%s", schedule_id, schedule_data)
         airzone, installation = _get_api_and_installation(hass, call.data.get(ATTR_CONFIG_ENTRY))
         res = await airzone.api_patch_installation_schedule(installation, schedule_id, schedule_data)
