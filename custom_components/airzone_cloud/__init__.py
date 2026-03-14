@@ -31,26 +31,28 @@ CARD_REGISTERED_KEY = "airzone_cloud_card_registered"
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Airzone Cloud component."""
-    # Register the custom Lovelace card early, before config entries load.
-    # Wrapped in try/except so a card registration failure never blocks the integration.
-    try:
-        card_path = os.path.join(os.path.dirname(__file__), "airzone-schedules-card.js")
-        if os.path.isfile(card_path):
-            from homeassistant.components.frontend import add_extra_js_url
-            from homeassistant.components.http import StaticPathConfig
-
-            await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, card_path, False)])
-            add_extra_js_url(hass, CARD_URL)
-            _LOGGER.debug("Registered Airzone schedules card at %s", CARD_URL)
-        else:
-            _LOGGER.warning("Airzone schedules card JS not found at %s", card_path)
-    except Exception:
-        _LOGGER.exception("Failed to register Airzone schedules card")
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: AirzoneCloudConfigEntry) -> bool:
     """Set up Airzone Cloud from a config entry."""
+    # Register the custom Lovelace card here so it loads for UI-configured instances.
+    if CARD_REGISTERED_KEY not in hass.data:
+        try:
+            card_path = os.path.join(os.path.dirname(__file__), "airzone-schedules-card.js")
+            if os.path.isfile(card_path):
+                from homeassistant.components.frontend import add_extra_js_url
+                from homeassistant.components.http import StaticPathConfig
+
+                await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, card_path, False)])
+                add_extra_js_url(hass, CARD_URL)
+                _LOGGER.debug("Registered Airzone schedules card at %s", CARD_URL)
+            else:
+                _LOGGER.warning("Airzone schedules card JS not found at %s", card_path)
+            hass.data[CARD_REGISTERED_KEY] = True
+        except Exception:
+            _LOGGER.exception("Failed to register Airzone schedules card")
+
     options = ConnectionOptions(
         entry.data[CONF_USERNAME],
         entry.data[CONF_PASSWORD],
