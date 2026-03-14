@@ -43,13 +43,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: AirzoneCloudConfigEntry)
             if os.path.isfile(card_path):
                 from homeassistant.components.frontend import add_extra_js_url
                 from homeassistant.components.http import StaticPathConfig
+                from homeassistant.components.panel_custom import async_register_panel
 
                 mtime = str(os.path.getmtime(card_path))
                 card_url_with_version = f"{CARD_URL}?v={mtime}"
 
                 await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, card_path, False)])
                 add_extra_js_url(hass, card_url_with_version)
-                _LOGGER.debug("Registered Airzone schedules card at %s", card_url_with_version)
+                
+                await async_register_panel(
+                    hass,
+                    frontend_url_path="airzone-schedules",
+                    webcomponent_name="airzone-schedules-card",
+                    sidebar_title="Airzone",
+                    sidebar_icon="mdi:calendar-clock",
+                    module_url=card_url_with_version,
+                    config={"config_entry": entry.entry_id},
+                    require_admin=False,
+                )
+                
+                _LOGGER.debug("Registered Airzone schedules card at %s and as a panel", card_url_with_version)
             else:
                 _LOGGER.warning("Airzone schedules card JS not found at %s", card_path)
             hass.data[CARD_REGISTERED_KEY] = True

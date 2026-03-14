@@ -20,6 +20,13 @@ class AirzoneSchedulesCard extends HTMLElement {
     this._initialized = false;
   }
 
+  set panel(panel) {
+    this._panel = panel;
+    if (panel && panel.config) {
+      this.setConfig(panel.config);
+    }
+  }
+
   set hass(hass) {
     this._hass = hass;
     if (!this._initialized) {
