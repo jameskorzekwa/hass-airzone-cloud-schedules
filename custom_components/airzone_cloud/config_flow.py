@@ -27,9 +27,7 @@ class AirZoneCloudConfigFlow(ConfigFlow, domain=DOMAIN):
 
     airzone: AirzoneCloudApi
 
-    async def async_step_inst_pick(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+    async def async_step_inst_pick(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle the installation selection."""
         errors = {}
         options: dict[str, str] = {}
@@ -66,10 +64,7 @@ class AirZoneCloudConfigFlow(ConfigFlow, domain=DOMAIN):
                 {
                     vol.Required(CONF_ID): SelectSelector(
                         SelectSelectorConfig(
-                            options=[
-                                SelectOptionDict(value=k, label=v)
-                                for k, v in options.items()
-                            ],
+                            options=[SelectOptionDict(value=k, label=v) for k, v in options.items()],
                             mode=SelectSelectorMode.DROPDOWN,
                         )
                     ),
@@ -78,9 +73,7 @@ class AirZoneCloudConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle the initial step."""
         errors = {}
 

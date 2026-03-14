@@ -124,9 +124,7 @@ def redact_values(data: Any, ids: dict[str, Any]) -> Any:
     return redacted
 
 
-def redact_all(
-    data: dict[str, Any], ids: dict[str, Any], to_redact: list[str]
-) -> dict[str, Any]:
+def redact_all(data: dict[str, Any], ids: dict[str, Any], to_redact: list[str]) -> dict[str, Any]:
     """Redact sensitive data."""
     _data = redact_keys(data, ids)
     _data = redact_values(_data, ids)

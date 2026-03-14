@@ -176,8 +176,7 @@ class AirzoneBinarySensor(AirzoneEntity, BinarySensorEntity):
         self._attr_is_on = self.get_airzone_value(self.entity_description.key)
         if self.entity_description.attributes:
             self._attr_extra_state_attributes = {
-                key: self.get_airzone_value(val)
-                for key, val in self.entity_description.attributes.items()
+                key: self.get_airzone_value(val) for key, val in self.entity_description.attributes.items()
             }
 
 

@@ -87,13 +87,9 @@ class AirzoneAidooEntity(AirzoneEntity):
         """Send Aidoo parameters to Cloud API."""
         _LOGGER.debug("aidoo=%s: update_params=%s", self.entity_id, params)
         try:
-            await self.coordinator.airzone.api_set_aidoo_id_params(
-                self.aidoo_id, params
-            )
+            await self.coordinator.airzone.api_set_aidoo_id_params(self.aidoo_id, params)
         except AirzoneCloudError as error:
-            raise HomeAssistantError(
-                f"Failed to set {self.entity_id} params: {error}"
-            ) from error
+            raise HomeAssistantError(f"Failed to set {self.entity_id} params: {error}") from error
 
         self.coordinator.async_set_updated_data(self.coordinator.airzone.data())
 
@@ -130,13 +126,9 @@ class AirzoneGroupEntity(AirzoneEntity):
         """Send Group parameters to Cloud API."""
         _LOGGER.debug("group=%s: update_params=%s", self.entity_id, params)
         try:
-            await self.coordinator.airzone.api_set_group_id_params(
-                self.group_id, params
-            )
+            await self.coordinator.airzone.api_set_group_id_params(self.group_id, params)
         except AirzoneCloudError as error:
-            raise HomeAssistantError(
-                f"Failed to set {self.entity_id} params: {error}"
-            ) from error
+            raise HomeAssistantError(f"Failed to set {self.entity_id} params: {error}") from error
 
         self.coordinator.async_set_updated_data(self.coordinator.airzone.data())
 
@@ -176,9 +168,7 @@ class AirzoneHotWaterEntity(AirzoneEntity):
         try:
             await self.coordinator.airzone.api_set_dhw_id_params(self.dhw_id, params)
         except AirzoneCloudError as error:
-            raise HomeAssistantError(
-                f"Failed to set {self.entity_id} params: {error}"
-            ) from error
+            raise HomeAssistantError(f"Failed to set {self.entity_id} params: {error}") from error
 
         self.coordinator.async_set_updated_data(self.coordinator.airzone.data())
 
@@ -219,13 +209,9 @@ class AirzoneInstallationEntity(AirzoneEntity):
             params,
         )
         try:
-            await self.coordinator.airzone.api_set_installation_id_params(
-                self.inst_id, params
-            )
+            await self.coordinator.airzone.api_set_installation_id_params(self.inst_id, params)
         except AirzoneCloudError as error:
-            raise HomeAssistantError(
-                f"Failed to set {self.entity_id} params: {error}"
-            ) from error
+            raise HomeAssistantError(f"Failed to set {self.entity_id} params: {error}") from error
 
         self.coordinator.async_set_updated_data(self.coordinator.airzone.data())
 
@@ -329,8 +315,6 @@ class AirzoneZoneEntity(AirzoneEntity):
         try:
             await self.coordinator.airzone.api_set_zone_id_params(self.zone_id, params)
         except AirzoneCloudError as error:
-            raise HomeAssistantError(
-                f"Failed to set {self.entity_id} params: {error}"
-            ) from error
+            raise HomeAssistantError(f"Failed to set {self.entity_id} params: {error}") from error
 
         self.coordinator.async_set_updated_data(self.coordinator.airzone.data())

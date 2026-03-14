@@ -104,8 +104,7 @@ class AirzoneWaterHeater(AirzoneHotWaterEntity, WaterHeaterEntity):
 
         self._attr_unique_id = dhw_id
         self._attr_operation_list = [
-            OPERATION_LIB_TO_HASS[operation]
-            for operation in self.get_airzone_value(AZD_OPERATIONS)
+            OPERATION_LIB_TO_HASS[operation] for operation in self.get_airzone_value(AZD_OPERATIONS)
         ]
 
         self._async_update_attrs()
@@ -155,9 +154,7 @@ class AirzoneWaterHeater(AirzoneHotWaterEntity, WaterHeaterEntity):
     def _async_update_attrs(self) -> None:
         """Update water heater attributes."""
         self._attr_current_temperature = self.get_airzone_value(AZD_TEMP)
-        self._attr_current_operation = OPERATION_LIB_TO_HASS[
-            self.get_airzone_value(AZD_OPERATION)
-        ]
+        self._attr_current_operation = OPERATION_LIB_TO_HASS[self.get_airzone_value(AZD_OPERATION)]
         self._attr_max_temp = self.get_airzone_value(AZD_TEMP_SET_MAX)
         self._attr_min_temp = self.get_airzone_value(AZD_TEMP_SET_MIN)
         self._attr_target_temperature = self.get_airzone_value(AZD_TEMP_SET)

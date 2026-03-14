@@ -32,9 +32,7 @@ class AirzoneSelectDescription(SelectEntityDescription):
 
     api_param: str
     options_dict: dict[str, Any]
-    options_fn: Callable[[dict[str, Any], dict[str, Any]], list[str]] = (
-        lambda zone_data, value: list(value)
-    )
+    options_fn: Callable[[dict[str, Any], dict[str, Any]], list[str]] = lambda zone_data, value: list(value)
 
 
 AIR_QUALITY_MAP: Final[dict[str, str]] = {
@@ -160,9 +158,7 @@ class AirzoneZoneSelect(AirzoneZoneEntity, AirzoneBaseSelect):
         self._attr_unique_id = f"{zone_id}_{description.key}"
         self.entity_description = description
 
-        self._attr_options = self.entity_description.options_fn(
-            zone_data, description.options_dict
-        )
+        self._attr_options = self.entity_description.options_fn(zone_data, description.options_dict)
 
         self.values_dict = {v: k for k, v in description.options_dict.items()}
 
