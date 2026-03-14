@@ -367,6 +367,10 @@ class AirzoneSchedulesCard extends HTMLElement {
     setTimeout(() => t.remove(), 3000);
   }
 
+  static getStubConfig() {
+    return { type: "custom:airzone-schedules-card" };
+  }
+
   getCardSize() { return 4; }
 }
 

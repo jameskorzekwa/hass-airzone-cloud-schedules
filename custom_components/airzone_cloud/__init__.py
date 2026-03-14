@@ -44,9 +44,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: AirzoneCloudConfigEntry)
                 from homeassistant.components.frontend import add_extra_js_url
                 from homeassistant.components.http import StaticPathConfig
 
+                mtime = str(os.path.getmtime(card_path))
+                card_url_with_version = f"{CARD_URL}?v={mtime}"
+
                 await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, card_path, False)])
-                add_extra_js_url(hass, CARD_URL)
-                _LOGGER.debug("Registered Airzone schedules card at %s", CARD_URL)
+                add_extra_js_url(hass, card_url_with_version)
+                _LOGGER.debug("Registered Airzone schedules card at %s", card_url_with_version)
             else:
                 _LOGGER.warning("Airzone schedules card JS not found at %s", card_path)
             hass.data[CARD_REGISTERED_KEY] = True
