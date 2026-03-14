@@ -76,7 +76,8 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-spinner { display:inline-block; width:24px; height:24px; border:3px solid var(--az-border); border-top-color:var(--az-primary); border-radius:50%; animation:az-spin 0.8s linear infinite; }
         @keyframes az-spin { to { transform:rotate(360deg); } }
 
-        .az-editor-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:999; display:flex; align-items:center; justify-content:center; }
+        dialog.az-editor-overlay { border:none; background:transparent; padding:0; outline:none; margin:auto; max-width:100%; max-height:100%; overflow:visible; }
+        dialog.az-editor-overlay::backdrop { background:rgba(0,0,0,0.6); }
         .az-editor { background:var(--az-bg); border-radius:16px; width:90%; max-width:420px; max-height:85vh; overflow-y:auto; border:1px solid var(--az-border); box-shadow:0 20px 60px rgba(0,0,0,0.5); }
         .az-editor-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--az-border); }
         .az-editor-header h3 { margin:0; font-size:1.05em; color:var(--az-text); }
@@ -204,11 +205,9 @@ class AirzoneSchedulesCard extends HTMLElement {
     let selectedDays = [...days];
     let tempVal = temp;
 
-    const overlay = document.createElement('div');
+    const overlay = document.createElement('dialog');
     overlay.className = 'az-editor-overlay';
-    const styleContent = this.querySelector('style').innerHTML.replace(/:host/g, '.az-editor-overlay');
     overlay.innerHTML = `
-      <style>${styleContent}</style>
       <div class="az-editor">
         <div class="az-editor-header">
           <h3>${isNew ? '✨ New Schedule' : '✏️ Edit Schedule'}</h3>
@@ -264,7 +263,8 @@ class AirzoneSchedulesCard extends HTMLElement {
         </div>
       </div>
     `;
-    document.body.appendChild(overlay);
+    this.querySelector('ha-card').appendChild(overlay);
+    overlay.showModal();
 
     // Day buttons
     overlay.querySelectorAll('.az-day-btn').forEach(btn => {
@@ -287,8 +287,9 @@ class AirzoneSchedulesCard extends HTMLElement {
     overlay.querySelector('#ed-temp-down').addEventListener('click', () => { tempVal = Math.max(15, tempVal - 0.5); tempDisplay.textContent = tempVal; });
     overlay.querySelector('#ed-temp-up').addEventListener('click', () => { tempVal = Math.min(30, tempVal + 0.5); tempDisplay.textContent = tempVal; });
     // Close
-    overlay.querySelectorAll('.az-close').forEach(btn => btn.addEventListener('click', () => overlay.remove()));
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    const closeOverlay = () => { overlay.close(); overlay.remove(); };
+    overlay.querySelectorAll('.az-close').forEach(btn => btn.addEventListener('click', closeOverlay));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeOverlay(); });
 
     // Save
     overlay.querySelector('#ed-save').addEventListener('click', async () => {
@@ -326,7 +327,7 @@ class AirzoneSchedulesCard extends HTMLElement {
           await this._hass.callService('airzone_cloud', 'patch_installation_schedule', svcData);
           this._toast('Schedule updated!');
         }
-        overlay.remove();
+        closeOverlay();
         this._loadSchedules();
       } catch (err) {
         this._toast('Error: ' + (err.message || 'Unknown'), true);
