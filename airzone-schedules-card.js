@@ -33,6 +33,12 @@ class AirzoneSchedulesCard extends HTMLElement {
   _toDisplay(celsius) { return this._useFah ? cToF(celsius) : celsius; }
   _toCelsius(display) { return this._useFah ? fToC(display) : display; }
 
+  set panel(panel) {
+    if (panel && panel.config) {
+      this.setConfig(panel.config);
+    }
+  }
+
   set hass(hass) {
     this._hass = hass;
     this._tryInit();
