@@ -35,16 +35,21 @@ class AirzoneSchedulesCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    if (!this._initialized) {
-      this._initialized = true;
-      this._render();
-      this._loadSchedules();
-    }
+    this._tryInit();
   }
 
   setConfig(config) {
     if (!config.config_entry) throw new Error('You need to define a config_entry.');
     this.config = config;
+    this._tryInit();
+  }
+
+  _tryInit() {
+    if (!this._initialized && this._hass && this.config) {
+      this._initialized = true;
+      this._render();
+      this._loadSchedules();
+    }
   }
 
   _render() {
