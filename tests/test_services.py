@@ -206,7 +206,7 @@ class TestServiceHandlers:
 
         result = await handler(call)
 
-        mock_airzone.api_post_installation_schedule.assert_called_once_with(mock_installation, schedule_data)
+        mock_airzone.api_post_installation_schedule.assert_called_once_with(mock_installation, {"schedule": schedule_data})
         assert result["response"]["_id"] == "new-schedule-id"
 
     @pytest.mark.asyncio
@@ -226,7 +226,7 @@ class TestServiceHandlers:
         result = await handler(call)
 
         mock_airzone.api_patch_installation_schedule.assert_called_once_with(
-            mock_installation, "sched-1", schedule_data
+            mock_installation, "sched-1", {"schedule": schedule_data}
         )
         assert result["response"]["ok"] is True
 

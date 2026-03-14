@@ -301,10 +301,10 @@ class AirzoneSchedulesCard extends HTMLElement {
         name: edName,
         type: 'week',
         prog_enabled: true,
+        setpoint: tempVal,
         start_conf: {
           mode: selectedMode,
           pspeed: edSpeed === 'auto' ? 'auto' : parseInt(edSpeed),
-          setpoint: { celsius: tempVal, fah: Math.round(tempVal * 9/5 + 32) },
           days: selectedDays.sort(),
           hour: edHour,
           minutes: edMin,
@@ -339,10 +339,10 @@ class AirzoneSchedulesCard extends HTMLElement {
         name: schedule.name || 'Schedule',
         type: schedule.type || 'week',
         prog_enabled: active,
+        setpoint: sc.setpoint ? sc.setpoint.celsius : undefined,
         start_conf: {
           mode: sc.mode,
           pspeed: sc.pspeed,
-          setpoint: sc.setpoint ? { celsius: sc.setpoint.celsius, fah: sc.setpoint.fah } : undefined,
           days: sc.days,
           hour: sc.hour,
           minutes: sc.minutes,

@@ -92,7 +92,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Create a new schedule."""
         _LOGGER.debug("post_installation_schedule called")
         airzone, installation = _get_api_and_installation(hass, call.data.get(ATTR_CONFIG_ENTRY))
-        res = await airzone.api_post_installation_schedule(installation, call.data[ATTR_SCHEDULE_DATA])
+        # The Airzone Cloud API expects POST payloads wrapped in a "schedule" key
+        wrapped = {"schedule": call.data[ATTR_SCHEDULE_DATA]}
+        res = await airzone.api_post_installation_schedule(installation, wrapped)
         return {"response": res}
 
     async def async_patch_installation_schedule(call: ServiceCall) -> dict:
@@ -102,9 +104,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         # Strip any keys with None/undefined values to avoid sending nulls to the API
         if "start_conf" in schedule_data and isinstance(schedule_data["start_conf"], dict):
             schedule_data["start_conf"] = {k: v for k, v in schedule_data["start_conf"].items() if v is not None}
-        _LOGGER.warning("patch_installation_schedule: id=%s data=%s", schedule_id, schedule_data)
+        # The Airzone Cloud API expects PATCH payloads wrapped in a "schedule" key
+        wrapped = {"schedule": schedule_data}
+        _LOGGER.warning("patch_installation_schedule: id=%s data=%s", schedule_id, wrapped)
         airzone, installation = _get_api_and_installation(hass, call.data.get(ATTR_CONFIG_ENTRY))
-        res = await airzone.api_patch_installation_schedule(installation, schedule_id, schedule_data)
+        res = await airzone.api_patch_installation_schedule(installation, schedule_id, wrapped)
         return {"response": res}
 
     async def async_patch_installation_schedules_activate(call: ServiceCall) -> dict:
