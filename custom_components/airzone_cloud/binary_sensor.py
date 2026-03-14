@@ -18,7 +18,6 @@ from aioairzone_cloud.const import (
     AZD_WARNINGS,
     AZD_ZONES,
 )
-
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,

@@ -39,7 +39,6 @@ from aioairzone_cloud.const import (
     AZD_TEMP_STEP,
     AZD_ZONES,
 )
-
 from homeassistant.components.climate import (
     ATTR_HVAC_MODE,
     ATTR_TARGET_TEMP_HIGH,

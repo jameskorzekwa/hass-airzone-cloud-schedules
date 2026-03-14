@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from aioairzone_cloud.const import API_POWER, API_VALUE, AZD_POWER, AZD_ZONES
-
 from homeassistant.components.switch import (
     SwitchDeviceClass,
     SwitchEntity,

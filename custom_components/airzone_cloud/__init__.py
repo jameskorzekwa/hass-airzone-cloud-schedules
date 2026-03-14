@@ -50,7 +50,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AirzoneCloudConfigEntry)
 
                 await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, card_path, False)])
                 add_extra_js_url(hass, card_url_with_version)
-                
+
                 await async_register_panel(
                     hass,
                     frontend_url_path="airzone-schedules",
@@ -61,7 +61,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AirzoneCloudConfigEntry)
                     config={"config_entry": entry.entry_id},
                     require_admin=False,
                 )
-                
+
                 _LOGGER.debug("Registered Airzone schedules card at %s and as a panel", card_url_with_version)
             else:
                 _LOGGER.warning("Airzone schedules card JS not found at %s", card_path)

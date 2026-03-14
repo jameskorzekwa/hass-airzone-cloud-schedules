@@ -17,7 +17,6 @@ from aioairzone_cloud.const import (
     AZD_MODES,
     AZD_ZONES,
 )
-
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback

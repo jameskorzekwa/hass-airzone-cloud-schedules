@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from asyncio import timeout
 from datetime import timedelta
-import logging
 from typing import Any
 
 from aioairzone_cloud.cloudapi import AirzoneCloudApi
 from aioairzone_cloud.exceptions import AirzoneCloudError
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed

@@ -20,7 +20,6 @@ from aioairzone_cloud.const import (
     AZD_TEMP_SET_MAX,
     AZD_TEMP_SET_MIN,
 )
-
 from homeassistant.components.water_heater import (
     STATE_ECO,
     STATE_PERFORMANCE,

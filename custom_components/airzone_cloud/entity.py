@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 import logging
+from abc import ABC, abstractmethod
 from typing import Any
 
 from aioairzone_cloud.const import (
@@ -24,7 +24,6 @@ from aioairzone_cloud.const import (
     AZD_ZONES,
 )
 from aioairzone_cloud.exceptions import AirzoneCloudError
-
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo

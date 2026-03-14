@@ -29,7 +29,6 @@ from aioairzone_cloud.const import (
     AZD_WIFI_RSSI,
     AZD_ZONES,
 )
-
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
