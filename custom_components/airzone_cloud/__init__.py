@@ -15,6 +15,7 @@ from homeassistant.helpers.typing import ConfigType
 from .coordinator import AirzoneCloudConfigEntry, AirzoneUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+logging.getLogger("aioairzone_cloud").setLevel(logging.DEBUG)
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,

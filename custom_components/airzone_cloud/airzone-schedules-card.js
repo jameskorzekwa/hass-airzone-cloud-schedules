@@ -396,21 +396,45 @@ class AirzoneSchedulesCard extends HTMLElement {
   }
 
   async _toggleSchedule(schedule, active) {
+    const schedId = schedule._id || schedule.id;
+    if (!schedId) {
+      this._toast('Error: Schedule ID missing', true);
+      return;
+    }
+
+    console.log('Toggling schedule:', { id: schedId, active, schedule });
+
     try {
       const payload = {
         name: schedule.name,
         type: schedule.type || 'week',
-        prog_enabled: active,
-        start_conf: schedule.start_conf,
-        device_ids: schedule.device_ids,
+        prog_enabled: !!active
       };
-      const svcData = { schedule_id: schedule._id, schedule_data: payload };
+
+      if (schedule.start_conf) {
+        payload.start_conf = JSON.parse(JSON.stringify(schedule.start_conf));
+        delete payload.start_conf.id;
+        delete payload.start_conf._id;
+      }
+      
+      if (schedule.device_ids) {
+        payload.device_ids = schedule.device_ids;
+      }
+
+      const svcData = {
+        schedule_id: schedId,
+        schedule_data: payload
+      };
       if (this.config.config_entry) svcData.config_entry = this.config.config_entry;
+
+      console.log('Service call data:', svcData);
+
       await this._hass.callService('airzone_cloud', 'patch_installation_schedule', svcData);
       this._toast(active ? 'Schedule enabled' : 'Schedule disabled');
       this._loadSchedules();
     } catch (err) {
-      this._toast('Error: ' + (err.message || ''), true);
+      console.error('Toggle failed:', err);
+      this._toast('Error: ' + (err.message || 'Check console'), true);
       this._loadSchedules();
     }
   }

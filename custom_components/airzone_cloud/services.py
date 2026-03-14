@@ -97,10 +97,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     async def async_patch_installation_schedule(call: ServiceCall) -> dict:
         """Update an existing schedule."""
-        _LOGGER.debug("patch_installation_schedule called for schedule_id=%s", call.data[ATTR_SCHEDULE_ID])
+        schedule_id = call.data[ATTR_SCHEDULE_ID]
+        schedule_data = call.data[ATTR_SCHEDULE_DATA]
+        _LOGGER.warning("patch_installation_schedule: id=%s data=%s", schedule_id, schedule_data)
         airzone, installation = _get_api_and_installation(hass, call.data.get(ATTR_CONFIG_ENTRY))
         res = await airzone.api_patch_installation_schedule(
-            installation, call.data[ATTR_SCHEDULE_ID], call.data[ATTR_SCHEDULE_DATA]
+            installation, schedule_id, schedule_data
         )
         return {"response": res}
 
