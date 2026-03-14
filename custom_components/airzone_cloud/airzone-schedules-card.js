@@ -397,7 +397,14 @@ class AirzoneSchedulesCard extends HTMLElement {
 
   async _toggleSchedule(schedule, active) {
     try {
-      const svcData = { schedule_id: schedule._id, schedule_data: { prog_enabled: active } };
+      const payload = {
+        name: schedule.name,
+        type: schedule.type || 'week',
+        prog_enabled: active,
+        start_conf: schedule.start_conf,
+        device_ids: schedule.device_ids,
+      };
+      const svcData = { schedule_id: schedule._id, schedule_data: payload };
       if (this.config.config_entry) svcData.config_entry = this.config.config_entry;
       await this._hass.callService('airzone_cloud', 'patch_installation_schedule', svcData);
       this._toast(active ? 'Schedule enabled' : 'Schedule disabled');
