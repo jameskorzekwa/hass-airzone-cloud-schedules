@@ -206,7 +206,9 @@ class AirzoneSchedulesCard extends HTMLElement {
 
     const overlay = document.createElement('div');
     overlay.className = 'az-editor-overlay';
+    const styleContent = this.querySelector('style').innerHTML.replace(/:host/g, '.az-editor-overlay');
     overlay.innerHTML = `
+      <style>${styleContent}</style>
       <div class="az-editor">
         <div class="az-editor-header">
           <h3>${isNew ? '✨ New Schedule' : '✏️ Edit Schedule'}</h3>
