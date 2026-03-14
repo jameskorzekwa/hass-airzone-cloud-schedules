@@ -32,7 +32,28 @@ class AirzoneSchedulesCard extends HTMLElement {
     if (!this._initialized) {
       this._initialized = true;
       this._render();
-      this._loadSchedules();
+      this._loadData();
+    }
+  }
+
+  async _loadData() {
+    await this._loadDevices();
+    await this._loadSchedules();
+  }
+
+  async _loadDevices() {
+    if (this._availableDevices) return;
+    try {
+      const entities = await this._hass.callWS({ type: 'config/entity_registry/list' });
+      this._availableDevices = entities
+        .filter(e => e.platform === 'airzone_cloud' && e.entity_id.startsWith('climate.'))
+        .map(e => ({
+          id: e.unique_id,
+          name: e.name || e.original_name || (this._hass.states[e.entity_id] && this._hass.states[e.entity_id].attributes.friendly_name) || e.entity_id
+        }));
+    } catch (err) {
+      console.error('Failed to load entity registry', err);
+      this._availableDevices = [];
     }
   }
 
@@ -142,7 +163,7 @@ class AirzoneSchedulesCard extends HTMLElement {
       </div>
     `;
     this.appendChild(card);
-    card.querySelector('#az-refresh').addEventListener('click', () => this._loadSchedules());
+    card.querySelector('#az-refresh').addEventListener('click', () => this._loadData());
     card.querySelector('#az-add').addEventListener('click', () => this._openEditor(null));
   }
 
@@ -180,6 +201,9 @@ class AirzoneSchedulesCard extends HTMLElement {
       const temp = sc.setpoint ? sc.setpoint.celsius + '°C' : '—';
       const name = s.name || 'Unnamed Schedule';
       const deviceCount = (s.device_ids || []).length;
+      const deviceNamesStr = (s.device_ids || [])
+        .map(id => this._availableDevices?.find(d => d.id === id)?.name || id)
+        .join(', ');
 
       const el = document.createElement('div');
       el.className = 'az-schedule';
@@ -205,7 +229,7 @@ class AirzoneSchedulesCard extends HTMLElement {
           </div>
         </div>
         <div class="az-days">${DAY_LABELS.map((d, i) => '<span class="az-day ' + (days.includes(i) ? 'az-day-on' : 'az-day-off') + '">' + d + '</span>').join('')}</div>
-        ${deviceCount ? '<div class="az-devices" style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:map-marker-outline" style="--mdc-icon-size: 16px;"></ha-icon> ' + deviceCount + ' zone' + (deviceCount > 1 ? 's' : '') + '</div>' : ''}
+        ${deviceCount ? '<div class="az-devices" style="display:flex; align-items:center; gap:4px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="' + deviceNamesStr + '"><ha-icon icon="mdi:map-marker-outline" style="--mdc-icon-size: 16px; flex-shrink: 0;"></ha-icon> <span style="overflow: hidden; text-overflow: ellipsis;">' + deviceNamesStr + '</span></div>' : ''}
       `;
 
       el.querySelector('.az-edit').addEventListener('click', () => this._openEditor(s));
@@ -281,7 +305,18 @@ class AirzoneSchedulesCard extends HTMLElement {
               <option value="3" ${pspeed === '3' || pspeed === 3 ? 'selected' : ''}>High</option>
             </select>
           </div>
-          ${!isNew ? '<div class="az-field"><label>Device IDs</label><input type="text" id="ed-devices" value="' + deviceIds.join(', ') + '" placeholder="Comma-separated device IDs"/></div>' : ''}
+          <div class="az-field">
+            <label>Devices</label>
+            <div class="az-devices-editor" id="ed-devices-list" style="display:flex; flex-direction:column; gap:8px; max-height: 200px; overflow-y: auto; padding: 4px; border: 1px solid var(--az-border); border-radius: 12px; background: var(--primary-background-color, var(--az-surface));">
+              ${(this._availableDevices || []).map(d => `
+                <label style="display:flex; align-items:center; gap:12px; cursor:pointer; font-weight:500; text-transform:none; font-size:1em; color:var(--az-text); padding: 8px;">
+                  <input type="checkbox" class="ed-device-checkbox" value="${d.id}" ${(deviceIds.includes(d.id)) ? 'checked' : ''} style="width:20px; height:20px; accent-color:var(--az-primary); cursor:pointer;">
+                  ${d.name}
+                </label>
+              `).join('')}
+              ${(!this._availableDevices || this._availableDevices.length === 0) ? '<span style="color:var(--az-text2); padding: 12px;">No Airzone devices found.</span>' : ''}
+            </div>
+          </div>
         </div>
         <div class="az-editor-footer">
           <button class="az-btn az-btn-outline az-close">Cancel</button>
@@ -323,8 +358,7 @@ class AirzoneSchedulesCard extends HTMLElement {
       const edHour = parseInt(overlay.querySelector('#ed-hour').value) || 0;
       const edMin = parseInt(overlay.querySelector('#ed-min').value) || 0;
       const edSpeed = overlay.querySelector('#ed-pspeed').value;
-      const devicesEl = overlay.querySelector('#ed-devices');
-      const devIds = devicesEl ? devicesEl.value.split(',').map(s => s.trim()).filter(Boolean) : (schedule ? schedule.device_ids || [] : []);
+      const devIds = Array.from(overlay.querySelectorAll('.ed-device-checkbox:checked')).map(cb => cb.value);
 
       const payload = {
         name: edName,
