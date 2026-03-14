@@ -11,6 +11,8 @@ const DEFAULT_MODE = { label: 'Unknown', icon: '📋', color: '#888' };
 
 function pad(n) { return String(n).padStart(2, '0'); }
 function fmtTime(h, m) { return pad(h) + ':' + pad(m); }
+function cToF(c) { return Math.round(c * 9 / 5 + 32); }
+function fToC(f) { return Math.round((f - 32) * 5 / 9 * 2) / 2; }
 
 class AirzoneSchedulesCard extends HTMLElement {
   constructor() {
@@ -18,7 +20,18 @@ class AirzoneSchedulesCard extends HTMLElement {
     this._hass = null;
     this._schedules = [];
     this._initialized = false;
+    this._useFah = localStorage.getItem('az-temp-unit') === 'F';
   }
+
+  _displayTemp(celsius) {
+    if (celsius == null) return '—';
+    return this._useFah ? cToF(celsius) + '°F' : celsius + '°C';
+  }
+
+  _unitLabel() { return this._useFah ? '°F' : '°C'; }
+
+  _toDisplay(celsius) { return this._useFah ? cToF(celsius) : celsius; }
+  _toCelsius(display) { return this._useFah ? fToC(display) : display; }
 
   set hass(hass) {
     this._hass = hass;
@@ -103,10 +116,17 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); padding:10px 20px; border-radius:8px; color:white; font-size:0.85em; z-index:1000; animation:az-fade-in 0.3s; }
         @keyframes az-fade-in { from { opacity:0; transform:translateX(-50%) translateY(10px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
         .az-devices { font-size:0.75em; color:var(--az-text2); padding:0 16px 12px; }
+        .az-unit-toggle { background:var(--az-surface); border:1px solid var(--az-border); border-radius:8px; padding:4px 2px; display:inline-flex; gap:0; }
+        .az-unit-btn { border:none; background:transparent; color:var(--az-text2); font-size:0.8em; font-weight:600; padding:4px 8px; border-radius:6px; cursor:pointer; transition:all 0.2s; }
+        .az-unit-btn.active { background:var(--az-primary); color:#fff; }
       </style>
       <div class="az-header">
         <h2>📅 Airzone Schedules</h2>
         <div class="az-header-actions">
+          <div class="az-unit-toggle">
+            <button class="az-unit-btn ${this._useFah ? '' : 'active'}" id="az-unit-c">°C</button>
+            <button class="az-unit-btn ${this._useFah ? 'active' : ''}" id="az-unit-f">°F</button>
+          </div>
           <button class="az-btn az-btn-outline az-btn-sm" id="az-refresh">↻ Refresh</button>
           <button class="az-btn az-btn-primary az-btn-sm" id="az-add">+ New</button>
         </div>
@@ -116,8 +136,20 @@ class AirzoneSchedulesCard extends HTMLElement {
       </div>
     `;
     this.appendChild(card);
+    card.querySelector('#az-unit-c').addEventListener('click', () => this._setUnit(false));
+    card.querySelector('#az-unit-f').addEventListener('click', () => this._setUnit(true));
     card.querySelector('#az-refresh').addEventListener('click', () => this._loadSchedules());
     card.querySelector('#az-add').addEventListener('click', () => this._openEditor(null));
+  }
+
+  _setUnit(useFah) {
+    this._useFah = useFah;
+    localStorage.setItem('az-temp-unit', useFah ? 'F' : 'C');
+    const cBtn = this.querySelector('#az-unit-c');
+    const fBtn = this.querySelector('#az-unit-f');
+    cBtn.classList.toggle('active', !useFah);
+    fBtn.classList.toggle('active', useFah);
+    this._renderList();
   }
 
   async _loadSchedules() {
@@ -150,7 +182,7 @@ class AirzoneSchedulesCard extends HTMLElement {
       const isActive = s.prog_enabled !== false;
       const days = sc.days || [];
       const time = (sc.hour != null) ? fmtTime(sc.hour, sc.minutes || 0) : '—';
-      const temp = sc.setpoint ? sc.setpoint.celsius + '°C' : '—';
+      const temp = sc.setpoint ? this._displayTemp(sc.setpoint.celsius) : '—';
       const name = s.name || 'Unnamed Schedule';
       const deviceCount = (s.device_ids || []).length;
 
@@ -195,7 +227,8 @@ class AirzoneSchedulesCard extends HTMLElement {
     const hour = isNew ? 8 : (sc.hour != null ? sc.hour : 8);
     const minutes = isNew ? 0 : (sc.minutes != null ? sc.minutes : 0);
     const mode = isNew ? 3 : (sc.mode || 3);
-    const temp = isNew ? 21 : (sc.setpoint ? sc.setpoint.celsius : 21);
+    const tempC = isNew ? 21 : (sc.setpoint ? sc.setpoint.celsius : 21);
+    const temp = this._toDisplay(tempC);
     const days = isNew ? [1,2,3,4,5] : (sc.days || []);
     const pspeed = isNew ? 'auto' : (sc.pspeed || 'auto');
     const deviceIds = isNew ? [] : (schedule.device_ids || []);
@@ -241,7 +274,7 @@ class AirzoneSchedulesCard extends HTMLElement {
             <label>Temperature</label>
             <div class="az-temp-row">
               <button class="az-temp-btn" id="ed-temp-down">−</button>
-              <div class="az-temp-val"><span id="ed-temp-display">${tempVal}</span><span class="az-temp-unit">°C</span></div>
+              <div class="az-temp-val"><span id="ed-temp-display">${tempVal}</span><span class="az-temp-unit">${this._unitLabel()}</span></div>
               <button class="az-temp-btn" id="ed-temp-up">+</button>
             </div>
           </div>
@@ -280,10 +313,13 @@ class AirzoneSchedulesCard extends HTMLElement {
         selectedMode = parseInt(btn.dataset.mode);
       });
     });
-    // Temp
+    // Temp (step: 0.5°C or 1°F; limits: 15-30°C / 59-86°F)
     const tempDisplay = overlay.querySelector('#ed-temp-display');
-    overlay.querySelector('#ed-temp-down').addEventListener('click', () => { tempVal = Math.max(15, tempVal - 0.5); tempDisplay.textContent = tempVal; });
-    overlay.querySelector('#ed-temp-up').addEventListener('click', () => { tempVal = Math.min(30, tempVal + 0.5); tempDisplay.textContent = tempVal; });
+    const step = this._useFah ? 1 : 0.5;
+    const minT = this._toDisplay(15);
+    const maxT = this._toDisplay(30);
+    overlay.querySelector('#ed-temp-down').addEventListener('click', () => { tempVal = Math.max(minT, tempVal - step); tempDisplay.textContent = tempVal; });
+    overlay.querySelector('#ed-temp-up').addEventListener('click', () => { tempVal = Math.min(maxT, tempVal + step); tempDisplay.textContent = tempVal; });
     // Close
     overlay.querySelectorAll('.az-close').forEach(btn => btn.addEventListener('click', () => overlay.remove()));
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
@@ -301,7 +337,7 @@ class AirzoneSchedulesCard extends HTMLElement {
         name: edName,
         type: 'week',
         prog_enabled: true,
-        setpoint: tempVal,
+        setpoint: this._toCelsius(tempVal),
         start_conf: {
           mode: selectedMode,
           pspeed: edSpeed === 'auto' ? 'auto' : parseInt(edSpeed),
