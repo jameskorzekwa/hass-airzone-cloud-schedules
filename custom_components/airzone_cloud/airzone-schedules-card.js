@@ -148,7 +148,9 @@ class AirzoneSchedulesCard extends HTMLElement {
         ha-card.is-panel .az-list { padding: 0; }
         .az-empty { text-align:center; padding:64px 20px; color:var(--az-text2); grid-column: 1 / -1; font-size: 1.2em; }
         .az-empty-icon { margin-bottom:16px; color: var(--az-border); }
-        .az-schedule { background:var(--card-background-color, var(--az-surface)); border-radius:16px; overflow:hidden; border:1px solid var(--az-border); transition:all 0.2s; box-shadow: 0 4px 16px rgba(0,0,0,0.06); display: flex; flex-direction: column; margin-bottom:16px; }
+        .az-schedule-group { display:grid; grid-template-columns: 1fr; gap:16px; }
+        @media(min-width: 800px) { .az-schedule-group { grid-template-columns: repeat(2, 1fr); } }
+        .az-schedule { background:var(--card-background-color, var(--az-surface)); border-radius:16px; overflow:hidden; border:1px solid var(--az-border); transition:all 0.2s; box-shadow: 0 4px 16px rgba(0,0,0,0.06); display: flex; flex-direction: column; }
         .az-schedule:hover { border-color:var(--az-primary); transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.1); }
         .az-schedule-top { display:flex; align-items:center; padding:24px; gap:20px; }
         .az-schedule-icon { width:64px; height:64px; border-radius:16px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
@@ -472,7 +474,10 @@ class AirzoneSchedulesCard extends HTMLElement {
       summary.style.cssText = 'list-style:none; display:flex; align-items:center; gap:8px; padding:10px 4px; cursor:pointer; font-weight:600; font-size:0.95em; color:var(--az-text2); user-select:none;';
       summary.innerHTML = `<ha-icon icon="mdi:chevron-right" class="az-group-chevron" style="--mdc-icon-size:18px; transition:transform 0.2s;"></ha-icon>${label} <span style="margin-left:4px; font-weight:400; font-size:0.9em; opacity:0.7;">(${schedules.length})</span>`;
       details.appendChild(summary);
-      for (const s of schedules) details.appendChild(buildCard(s));
+      const grid = document.createElement('div');
+      grid.className = 'az-schedule-group';
+      for (const s of schedules) grid.appendChild(buildCard(s));
+      details.appendChild(grid);
 
       // Rotate chevron when open
       const updateChevron = () => {
