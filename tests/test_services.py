@@ -303,10 +303,10 @@ class TestServiceHandlers:
                     "name": "Winter Day",
                     "type": "week",
                     "prog_enabled": True,
+                    "setpoint": 20,
                     "start_conf": {
                         "mode": 3,
                         "pspeed": "auto",
-                        "setpoint": {"celsius": 20, "fah": 68},
                         "days": [1, 2, 3],
                         "hour": 9,
                         "minutes": 30,

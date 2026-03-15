@@ -218,9 +218,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     "name": match.get("name"),
                     "type": match.get("type", "week"),
                     "prog_enabled": enabled,
-                    "setpoint": sc.get("setpoint", {}).get("celsius")
-                    if isinstance(sc.get("setpoint"), dict)
-                    else sc.get("setpoint"),
+                    "setpoint": match.get("setpoint"),
                     "start_conf": {
                         "mode": sc.get("mode"),
                         "pspeed": sc.get("pspeed"),
