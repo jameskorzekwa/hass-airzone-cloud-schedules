@@ -73,7 +73,7 @@ patch_installation_schedule:
 
 toggle_schedule:
   name: "Toggle Schedule"
-  description: "Enable or disable a single schedule by name."
+  description: "Enable or disable schedules by name and/or tag filters (season, away)."
   fields:
     config_entry:
       name: Config Entry
@@ -83,16 +83,76 @@ toggle_schedule:
         config_entry:
           integration: airzone_cloud
     schedule_name:
-      name: Schedule Name
-      description: The name of the schedule (as shown in the Airzone Schedules panel).
-      required: true
+      name: Schedule Name(s)
+      description: One or more schedule names to toggle. Can be combined with season/away filters.
+      required: false
       example: "Winter Day"
       selector:
-        text:
+        object:
+    season:
+      name: Season
+      description: Filter schedules by season tag (winter or summer).
+      required: false
+      selector:
+        select:
+          options:
+            - "winter"
+            - "summer"
+    away:
+      name: Away
+      description: Filter by away tag. true = only away schedules, false = only non-away schedules.
+      required: false
+      selector:
+        boolean:
     enabled:
       name: Enabled
-      description: Whether the schedule should be enabled or disabled.
+      description: Whether the matching schedules should be enabled or disabled.
       required: true
+      selector:
+        boolean:
+
+get_schedule_tags:
+  name: "Get Schedule Tags"
+  description: "Gets locally-stored tags (season, away) for all schedules."
+  fields:
+    config_entry:
+      name: Config Entry
+      description: The ID of the Airzone Cloud integration config entry.
+      required: false
+      selector:
+        config_entry:
+          integration: airzone_cloud
+
+set_schedule_tags:
+  name: "Set Schedule Tags"
+  description: "Sets tags (season, away) for a specific schedule. Tags are stored locally."
+  fields:
+    config_entry:
+      name: Config Entry
+      description: The ID of the Airzone Cloud integration config entry.
+      required: false
+      selector:
+        config_entry:
+          integration: airzone_cloud
+    schedule_id:
+      name: Schedule ID
+      description: The Airzone schedule ID to tag.
+      required: true
+      selector:
+        text:
+    season:
+      name: Season
+      description: "Season tag: winter, summer, or leave empty to clear."
+      required: false
+      selector:
+        select:
+          options:
+            - "winter"
+            - "summer"
+    away:
+      name: Away
+      description: Whether this is an away/vacation schedule.
+      required: false
       selector:
         boolean:
 

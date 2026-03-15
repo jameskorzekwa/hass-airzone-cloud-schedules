@@ -70,6 +70,9 @@ def mock_hass(mock_config_entry):
     hass.services = MagicMock()
     hass.config_entries = MagicMock()
     hass.config_entries.async_get_entry.return_value = mock_config_entry
+    hass.data = {
+        "airzone_cloud": {"tag_store": MagicMock(get_all_tags=MagicMock(return_value={}), remove_tags=AsyncMock())}
+    }
     return hass
 
 
@@ -318,7 +321,7 @@ class TestServiceHandlers:
         call = MagicMock(spec=ServiceCall)
         call.data = {
             ATTR_CONFIG_ENTRY: "test-entry-id",
-            ATTR_SCHEDULE_NAME: "Winter Day",
+            ATTR_SCHEDULE_NAME: ["Winter Day"],
             ATTR_ENABLED: False,
         }
 
@@ -342,11 +345,11 @@ class TestServiceHandlers:
         call = MagicMock(spec=ServiceCall)
         call.data = {
             ATTR_CONFIG_ENTRY: "test-entry-id",
-            ATTR_SCHEDULE_NAME: "Nonexistent",
+            ATTR_SCHEDULE_NAME: ["Nonexistent"],
             ATTR_ENABLED: True,
         }
 
-        with pytest.raises(HomeAssistantError, match="not found"):
+        with pytest.raises(HomeAssistantError, match="No matching schedules|No schedules matched"):
             await handler(call)
 
     @pytest.mark.asyncio
@@ -370,7 +373,7 @@ class TestServiceHandlers:
         call = MagicMock(spec=ServiceCall)
         call.data = {
             ATTR_CONFIG_ENTRY: "test-entry-id",
-            ATTR_SCHEDULE_NAME: "winter day",
+            ATTR_SCHEDULE_NAME: ["winter day"],
             ATTR_ENABLED: True,
         }
 
@@ -384,17 +387,18 @@ class TestServiceHandlers:
         """Test valid toggle schedule schema."""
         data = {
             ATTR_CONFIG_ENTRY: "entry-123",
-            ATTR_SCHEDULE_NAME: "Winter Day",
+            ATTR_SCHEDULE_NAME: ["Winter Day"],
             ATTR_ENABLED: False,
         }
         result = TOGGLE_SCHEDULE_SCHEMA(data)
-        assert result[ATTR_SCHEDULE_NAME] == "Winter Day"
+        assert result[ATTR_SCHEDULE_NAME] == ["Winter Day"]
         assert result[ATTR_ENABLED] is False
 
-    def test_toggle_schedule_schema_missing_name(self):
-        """Test toggle schedule schema fails without schedule_name."""
-        with pytest.raises(vol.MultipleInvalid):
-            TOGGLE_SCHEDULE_SCHEMA({ATTR_ENABLED: True})
+    def test_toggle_schedule_schema_valid_without_name(self):
+        """Test toggle schedule schema allows omitting schedule_name (for tag-based filtering)."""
+        result = TOGGLE_SCHEDULE_SCHEMA({ATTR_ENABLED: True})
+        assert ATTR_SCHEDULE_NAME not in result
+        assert result[ATTR_ENABLED] is True
 
     @staticmethod
     def _get_handler(mock_hass, service_name):

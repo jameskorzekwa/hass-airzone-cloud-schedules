@@ -19,6 +19,7 @@ class AirzoneSchedulesCard extends HTMLElement {
     super();
     this._hass = null;
     this._schedules = [];
+    this._tags = {};
     this._initialized = false;
     this._useFah = localStorage.getItem('az-temp-unit') === 'F';
   }
@@ -184,7 +185,23 @@ class AirzoneSchedulesCard extends HTMLElement {
 
   async _loadData() {
     await this._loadDevices();
+    await this._loadTags();
     await this._loadSchedules();
+  }
+
+  async _loadTags() {
+    try {
+      const svcData = this.config.config_entry ? { config_entry: this.config.config_entry } : {};
+      const resp = await this._hass.callWS({
+        type: 'call_service', domain: 'airzone_cloud', service: 'get_schedule_tags',
+        service_data: svcData, return_response: true
+      });
+      const raw = resp.response || resp;
+      this._tags = raw.tags || {};
+    } catch (err) {
+      console.warn('Failed to load schedule tags', err);
+      this._tags = {};
+    }
   }
 
   async _loadDevices() {
@@ -228,7 +245,8 @@ class AirzoneSchedulesCard extends HTMLElement {
       return;
     }
     list.innerHTML = '';
-    for (const s of this._schedules) {
+    const sorted = [...this._schedules].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    for (const s of sorted) {
       const sc = s.start_conf || {};
       const modeInfo = MODES[sc.mode] || DEFAULT_MODE;
       const isActive = s.prog_enabled !== false;
@@ -261,32 +279,39 @@ class AirzoneSchedulesCard extends HTMLElement {
           </label>
           <div class="az-schedule-actions">
             <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-edit" data-id="${s._id}" title="Edit"><ha-icon icon="mdi:pencil" style="--mdc-icon-size: 18px;"></ha-icon></button>
+            <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-dup" data-id="${s._id}" title="Duplicate"><ha-icon icon="mdi:content-copy" style="--mdc-icon-size: 18px;"></ha-icon></button>
             <button class="az-btn az-btn-danger az-btn-icon az-btn-sm az-del" data-id="${s._id}" title="Delete"><ha-icon icon="mdi:delete" style="--mdc-icon-size: 18px;"></ha-icon></button>
           </div>
         </div>
         <div class="az-days">${DAY_LABELS.map((d, i) => '<span class="az-day ' + (days.includes(i) ? 'az-day-on' : 'az-day-off') + '">' + d + '</span>').join('')}</div>
+        ${(() => { const t = this._tags[s._id] || {}; const b = []; if (t.season === 'winter') b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#3498db22;color:#3498db;padding:4px 10px;border-radius:8px;font-size:0.8em;font-weight:600;"><ha-icon icon="mdi:snowflake" style="--mdc-icon-size:14px;"></ha-icon> Winter</span>'); if (t.season === 'summer') b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#e7743422;color:#e74c3c;padding:4px 10px;border-radius:8px;font-size:0.8em;font-weight:600;"><ha-icon icon="mdi:white-balance-sunny" style="--mdc-icon-size:14px;"></ha-icon> Summer</span>'); if (t.away) b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#f39c1222;color:#f39c12;padding:4px 10px;border-radius:8px;font-size:0.8em;font-weight:600;"><ha-icon icon="mdi:airplane" style="--mdc-icon-size:14px;"></ha-icon> Away</span>'); return b.length ? '<div style="display:flex;gap:8px;padding:0 24px 8px;flex-wrap:wrap;">' + b.join('') + '</div>' : ''; })()}
         ${deviceCount ? '<div class="az-devices" style="display:flex; align-items:center; gap:4px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="' + deviceNamesStr + '"><ha-icon icon="mdi:map-marker-outline" style="--mdc-icon-size: 16px; flex-shrink: 0;"></ha-icon> <span style="overflow: hidden; text-overflow: ellipsis;">' + deviceNamesStr + '</span></div>' : ''}
       `;
 
       el.querySelector('.az-edit').addEventListener('click', () => this._openEditor(s));
+      el.querySelector('.az-dup').addEventListener('click', () => this._openEditor(s, true));
       el.querySelector('.az-del').addEventListener('click', () => this._deleteSchedule(s._id));
       el.querySelector('input[type=checkbox]').addEventListener('change', (e) => this._toggleSchedule(s, e.target.checked));
       list.appendChild(el);
     }
   }
 
-  _openEditor(schedule) {
-    const isNew = !schedule;
+  _openEditor(schedule, isDuplicate = false) {
+    const isNew = !schedule || isDuplicate;
+    const useDefaults = !schedule;
     const sc = schedule ? (schedule.start_conf || {}) : {};
-    const name = isNew ? '' : (schedule.name || '');
-    const hour = isNew ? 8 : (sc.hour != null ? sc.hour : 8);
-    const minutes = isNew ? 0 : (sc.minutes != null ? sc.minutes : 0);
-    const mode = isNew ? 3 : (sc.mode || 3);
-    const tempC = isNew ? 21 : (sc.setpoint ? sc.setpoint.celsius : 21);
+    const name = (schedule && !isDuplicate) ? (schedule.name || '') : '';
+    const hour = useDefaults ? 8 : (sc.hour != null ? sc.hour : 8);
+    const minutes = useDefaults ? 0 : (sc.minutes != null ? sc.minutes : 0);
+    const mode = useDefaults ? 3 : (sc.mode || 3);
+    const tempC = useDefaults ? 21 : (sc.setpoint ? sc.setpoint.celsius : 21);
     const temp = this._toDisplay(tempC);
-    const days = isNew ? [1,2,3,4,5] : (sc.days || []);
-    const pspeed = isNew ? 'auto' : (sc.pspeed || 'auto');
-    const deviceIds = isNew ? [] : (schedule.device_ids || []);
+    const days = useDefaults ? [1,2,3,4,5] : (sc.days || []);
+    const pspeed = useDefaults ? 'auto' : (sc.pspeed || 'auto');
+    const deviceIds = useDefaults ? [] : (schedule.device_ids || []);
+    const existingTags = schedule ? (this._tags[schedule._id] || {}) : {};
+    const edSeason = isDuplicate ? (existingTags.season || '') : (existingTags.season || '');
+    const edAway = isDuplicate ? !!existingTags.away : !!existingTags.away;
 
     let selectedMode = mode;
     let selectedDays = [...days];
@@ -297,13 +322,13 @@ class AirzoneSchedulesCard extends HTMLElement {
     overlay.innerHTML = `
       <div class="az-editor">
         <div class="az-editor-header">
-          <h3 style="display:flex; align-items:center; gap:6px;">${isNew ? '<ha-icon icon="mdi:calendar-plus"></ha-icon> New Schedule' : '<ha-icon icon="mdi:pencil"></ha-icon> Edit Schedule'}</h3>
+          <h3 style="display:flex; align-items:center; gap:6px;">${isDuplicate ? '<ha-icon icon="mdi:content-copy"></ha-icon> Duplicate Schedule' : isNew ? '<ha-icon icon="mdi:calendar-plus"></ha-icon> New Schedule' : '<ha-icon icon="mdi:pencil"></ha-icon> Edit Schedule'}</h3>
           <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-close" title="Close"><ha-icon icon="mdi:close" style="--mdc-icon-size:18px;"></ha-icon></button>
         </div>
         <div class="az-editor-body">
           <div class="az-field">
             <label>Schedule Name</label>
-            <input type="text" id="ed-name" value="${name}" placeholder="e.g. Winter Night"/>
+            <input type="text" id="ed-name" value="${name}" placeholder="e.g. Winter Night" maxlength="11"/>
           </div>
           <div class="az-field">
             <label>Time</label>
@@ -353,6 +378,21 @@ class AirzoneSchedulesCard extends HTMLElement {
               `).join('')}
               ${(!this._availableDevices || this._availableDevices.length === 0) ? '<span style="color:var(--az-text2); padding: 12px;">No Airzone devices found.</span>' : ''}
             </div>
+          </div>
+          <div class="az-field">
+            <label>Season</label>
+            <select id="ed-season">
+              <option value="" ${!edSeason ? 'selected' : ''}>None</option>
+              <option value="winter" ${edSeason === 'winter' ? 'selected' : ''}>Winter</option>
+              <option value="summer" ${edSeason === 'summer' ? 'selected' : ''}>Summer</option>
+            </select>
+          </div>
+          <div class="az-field" style="margin-top: 8px; padding-top: 20px; border-top: 1px solid var(--az-border);">
+            <label>Away Schedule</label>
+            <label style="display:flex; align-items:center; gap:12px; cursor:pointer; font-weight:500; text-transform:none; font-size:1em; color:var(--az-text); padding:8px;">
+              <input type="checkbox" id="ed-away" ${edAway ? 'checked' : ''} style="width:20px; height:20px; accent-color:var(--az-primary); cursor:pointer;">
+              This is an away/vacation schedule
+            </label>
           </div>
         </div>
         <div class="az-editor-footer">
@@ -415,20 +455,47 @@ class AirzoneSchedulesCard extends HTMLElement {
         device_ids: devIds,
       };
 
+      const seasonVal = overlay.querySelector('#ed-season').value || null;
+      const awayVal = overlay.querySelector('#ed-away').checked;
+
       try {
         const svcData = { schedule_data: payload };
         if (this.config.config_entry) svcData.config_entry = this.config.config_entry;
 
+        let tagScheduleId = null;
         if (isNew) {
-          await this._hass.callService('airzone_cloud', 'post_installation_schedule', svcData);
-          this._toast('Schedule created!');
+          const postResp = await this._hass.callWS({
+            type: 'call_service', domain: 'airzone_cloud', service: 'post_installation_schedule',
+            service_data: svcData, return_response: true
+          });
+          const created = postResp?.response?.response || postResp?.response || {};
+          tagScheduleId = created._id || created.schedule?._id || null;
+          this._toast(isDuplicate ? 'Schedule duplicated!' : 'Schedule created!');
         } else {
           svcData.schedule_id = schedule._id;
           await this._hass.callService('airzone_cloud', 'patch_installation_schedule', svcData);
+          tagScheduleId = schedule._id;
           this._toast('Schedule updated!');
         }
+
+        // Save tags
+        if (tagScheduleId && (seasonVal || awayVal)) {
+          try {
+            const tagData = { schedule_id: tagScheduleId, season: seasonVal, away: awayVal };
+            if (this.config.config_entry) tagData.config_entry = this.config.config_entry;
+            await this._hass.callService('airzone_cloud', 'set_schedule_tags', tagData);
+          } catch (tagErr) { console.warn('Failed to save tags', tagErr); }
+        } else if (tagScheduleId && !seasonVal && !awayVal) {
+          // Clear tags if both are unset
+          try {
+            const tagData = { schedule_id: tagScheduleId, season: null, away: false };
+            if (this.config.config_entry) tagData.config_entry = this.config.config_entry;
+            await this._hass.callService('airzone_cloud', 'set_schedule_tags', tagData);
+          } catch (tagErr) { console.warn('Failed to clear tags', tagErr); }
+        }
+
         closeOverlay();
-        this._loadSchedules();
+        this._loadData();
       } catch (err) {
         this._toast('Error: ' + (err.message || 'Unknown'), true);
       }

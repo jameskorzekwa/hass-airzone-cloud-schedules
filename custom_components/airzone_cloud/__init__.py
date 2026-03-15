@@ -13,6 +13,7 @@ from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.typing import ConfigType
 
 from .coordinator import AirzoneCloudConfigEntry, AirzoneUpdateCoordinator
+from .store import ScheduleTagStore
 
 _LOGGER = logging.getLogger(__name__)
 logging.getLogger("aioairzone_cloud").setLevel(logging.DEBUG)
@@ -91,7 +92,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: AirzoneCloudConfigEntry)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    from .const import DOMAIN
     from .services import async_setup_services
+
+    hass.data.setdefault(DOMAIN, {})
+    if "tag_store" not in hass.data[DOMAIN]:
+        tag_store = ScheduleTagStore(hass)
+        await tag_store.load()
+        hass.data[DOMAIN]["tag_store"] = tag_store
 
     await async_setup_services(hass)
 
