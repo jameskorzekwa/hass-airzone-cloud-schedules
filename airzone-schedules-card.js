@@ -1,13 +1,13 @@
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MODES = {
-  1: { label: 'Auto', icon: '🔄', color: '#9b59b6' },
-  2: { label: 'Cooling', icon: '❄️', color: '#3498db' },
-  3: { label: 'Heating', icon: '🔥', color: '#e74c3c' },
-  4: { label: 'Ventilation', icon: '💨', color: '#2ecc71' },
-  5: { label: 'Dry', icon: '💧', color: '#f39c12' },
-  7: { label: 'Emergency Heat', icon: '🔥', color: '#c0392b' },
+  1: { label: 'Auto', icon: '<ha-icon icon="mdi:autorenew"></ha-icon>', color: '#9b59b6' },
+  2: { label: 'Cooling', icon: '<ha-icon icon="mdi:snowflake"></ha-icon>', color: '#3498db' },
+  3: { label: 'Heating', icon: '<ha-icon icon="mdi:fire"></ha-icon>', color: '#e74c3c' },
+  4: { label: 'Ventilation', icon: '<ha-icon icon="mdi:fan"></ha-icon>', color: '#2ecc71' },
+  5: { label: 'Dry', icon: '<ha-icon icon="mdi:water-percent"></ha-icon>', color: '#f39c12' },
+  7: { label: 'Emergency Heat', icon: '<ha-icon icon="mdi:fire-alert"></ha-icon>', color: '#c0392b' },
 };
-const DEFAULT_MODE = { label: 'Unknown', icon: '📋', color: '#888' };
+const DEFAULT_MODE = { label: 'Unknown', icon: '<ha-icon icon="mdi:help-circle-outline"></ha-icon>', color: '#888' };
 
 function pad(n) { return String(n).padStart(2, '0'); }
 function fmtTime(h, m) { return pad(h) + ':' + pad(m); }
@@ -29,11 +29,11 @@ class AirzoneSchedulesCard extends HTMLElement {
   }
 
   _unitLabel() { return this._useFah ? '°F' : '°C'; }
-
   _toDisplay(celsius) { return this._useFah ? cToF(celsius) : celsius; }
   _toCelsius(display) { return this._useFah ? fToC(display) : display; }
 
   set panel(panel) {
+    this._panel = panel;
     if (panel && panel.config) {
       this.setConfig(panel.config);
     }
@@ -45,8 +45,7 @@ class AirzoneSchedulesCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config.config_entry) throw new Error('You need to define a config_entry.');
-    this.config = config;
+    this.config = config || {};
     this._tryInit();
   }
 
@@ -54,92 +53,112 @@ class AirzoneSchedulesCard extends HTMLElement {
     if (!this._initialized && this._hass && this.config) {
       this._initialized = true;
       this._render();
-      this._loadSchedules();
+      this._loadData();
     }
   }
 
   _render() {
     this.innerHTML = '';
     const card = document.createElement('ha-card');
+    if (this._panel) card.classList.add('is-panel');
     card.innerHTML = `
       <style>
-        :host { --az-primary: #4a90d9; --az-danger: #e74c3c; --az-success: #27ae60; --az-bg: var(--card-background-color, #1c1c1c); --az-surface: var(--primary-background-color, #252525); --az-text: var(--primary-text-color, #e0e0e0); --az-text2: var(--secondary-text-color, #999); --az-border: var(--divider-color, #333); }
-        .az-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px 12px; }
-        .az-header h2 { margin:0; font-size:1.2em; font-weight:600; color:var(--az-text); display:flex; align-items:center; gap:8px; }
-        .az-header-actions { display:flex; gap:8px; }
-        .az-btn { border:none; border-radius:8px; padding:8px 16px; font-size:0.85em; font-weight:500; cursor:pointer; transition:all 0.2s; display:inline-flex; align-items:center; gap:6px; }
-        .az-btn-primary { background:var(--az-primary); color:#fff; }
-        .az-btn-primary:hover { filter:brightness(1.15); }
-        .az-btn-outline { background:transparent; border:1px solid var(--az-border); color:var(--az-text); }
-        .az-btn-outline:hover { background:var(--az-surface); }
-        .az-btn-danger { background:transparent; border:1px solid var(--az-danger); color:var(--az-danger); }
+        :host { --az-primary: var(--primary-color, #4a90d9); --az-danger: var(--error-color, #e74c3c); --az-success: var(--success-color, #27ae60); --az-bg: var(--card-background-color, #1c1c1c); --az-surface: var(--primary-background-color, #252525); --az-text: var(--primary-text-color, #e0e0e0); --az-text2: var(--secondary-text-color, #999); --az-border: var(--divider-color, rgba(200,200,200,0.1)); font-family: var(--primary-font-family, -apple-system, sans-serif); }
+        ha-card { transition: all 0.3s ease; }
+        ha-card.is-panel { background: transparent; border: none; box-shadow: none; padding: 20px; max-width: 1400px; margin: 0 auto; }
+        .az-header { display:flex; align-items:center; justify-content:space-between; padding:24px 32px 16px; }
+        ha-card.is-panel .az-header { padding: 16px 0 32px 0; }
+        .az-header h2 { margin:0; font-size:1.8em; font-weight:600; color:var(--az-text); display:flex; align-items:center; gap:12px; }
+        .az-header h2 ha-icon { --mdc-icon-size: 36px; color: var(--az-primary); }
+        .az-header-actions { display:flex; gap:12px; align-items:center; }
+        .az-btn { border:none; border-radius:10px; padding:10px 20px; font-size:1em; font-weight:600; cursor:pointer; transition:all 0.2s; display:inline-flex; align-items:center; gap:8px; font-family: inherit; }
+        .az-btn-primary { background:var(--az-primary); color:var(--text-primary-color, #fff); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .az-btn-primary:hover { filter:brightness(1.15); transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,0.2); }
+        .az-btn-primary:active { transform: translateY(1px); }
+        .az-btn-outline { background:var(--az-surface); border:1px solid var(--az-border); color:var(--az-text); }
+        .az-btn-outline:hover { background:var(--az-border); }
+        .az-btn-danger { background:var(--az-surface); border:1px solid var(--az-danger); color:var(--az-danger); }
         .az-btn-danger:hover { background:rgba(231,76,60,0.1); }
-        .az-btn-sm { padding:6px 12px; font-size:0.8em; }
-        .az-btn-icon { padding:6px; min-width:32px; justify-content:center; }
-        .az-list { padding:0 16px 16px; display:flex; flex-direction:column; gap:10px; }
-        .az-empty { text-align:center; padding:32px 16px; color:var(--az-text2); }
-        .az-empty-icon { font-size:2.5em; margin-bottom:8px; }
-        .az-schedule { background:var(--az-surface); border-radius:12px; overflow:hidden; border:1px solid var(--az-border); transition:border-color 0.2s; }
-        .az-schedule:hover { border-color:var(--az-primary); }
-        .az-schedule-top { display:flex; align-items:center; padding:14px 16px; gap:12px; }
-        .az-schedule-icon { width:40px; height:40px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1.3em; flex-shrink:0; }
+        .az-btn-sm { padding:8px 16px; font-size:0.9em; }
+        .az-btn-icon { padding:8px; min-width:36px; justify-content:center; }
+        .az-unit-toggle { background:var(--az-surface); border:1px solid var(--az-border); border-radius:10px; padding:4px; display:inline-flex; gap:0; }
+        .az-unit-btn { border:none; background:transparent; color:var(--az-text2); font-size:0.9em; font-weight:700; padding:6px 10px; border-radius:8px; cursor:pointer; transition:all 0.2s; }
+        .az-unit-btn.active { background:var(--az-primary); color:var(--text-primary-color, #fff); }
+        .az-list { padding:0 32px 32px; display:grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap:20px; }
+        ha-card.is-panel .az-list { padding: 0; }
+        .az-empty { text-align:center; padding:64px 20px; color:var(--az-text2); grid-column: 1 / -1; font-size: 1.2em; }
+        .az-empty-icon { margin-bottom:16px; color: var(--az-border); }
+        .az-schedule { background:var(--card-background-color, var(--az-surface)); border-radius:16px; overflow:hidden; border:1px solid var(--az-border); transition:all 0.2s; box-shadow: 0 4px 16px rgba(0,0,0,0.06); display: flex; flex-direction: column; }
+        .az-schedule:hover { border-color:var(--az-primary); transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.1); }
+        .az-schedule-top { display:flex; align-items:center; padding:24px; gap:20px; }
+        .az-schedule-icon { width:64px; height:64px; border-radius:16px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+        .az-schedule-icon ha-icon { --mdc-icon-size: 32px; }
         .az-schedule-info { flex:1; min-width:0; }
-        .az-schedule-name { font-weight:600; font-size:0.95em; color:var(--az-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .az-schedule-meta { font-size:0.8em; color:var(--az-text2); margin-top:2px; display:flex; gap:12px; flex-wrap:wrap; }
-        .az-schedule-toggle { position:relative; width:44px; height:24px; flex-shrink:0; }
-        .az-schedule-toggle input { opacity:0; width:0; height:0; }
-        .az-toggle-slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:#555; border-radius:24px; transition:0.3s; }
-        .az-toggle-slider:before { position:absolute; content:""; height:18px; width:18px; left:3px; bottom:3px; background:white; border-radius:50%; transition:0.3s; }
+        .az-schedule-name { font-weight:600; font-size:1.3em; color:var(--az-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; letter-spacing: 0.3px; }
+        .az-schedule-meta { font-size:0.95em; color:var(--az-text2); margin-top:8px; display:flex; gap:16px; flex-wrap:wrap; font-weight: 500; }
+        .az-schedule-toggle { position:relative; width:54px; height:30px; flex-shrink:0; cursor: pointer; }
+        .az-schedule-toggle input { opacity:0; width:0; height:0; position: absolute; }
+        .az-toggle-slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:var(--disabled-text-color, #777); border-radius:30px; transition:0.3s; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
+        .az-toggle-slider:before { position:absolute; content:""; height:22px; width:22px; left:4px; bottom:4px; background:white; border-radius:50%; transition:0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
         .az-schedule-toggle input:checked + .az-toggle-slider { background:var(--az-success); }
-        .az-schedule-toggle input:checked + .az-toggle-slider:before { transform:translateX(20px); }
-        .az-schedule-actions { display:flex; gap:6px; flex-shrink:0; }
-        .az-days { display:flex; gap:4px; padding:0 16px 14px; }
-        .az-day { width:32px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:0.7em; font-weight:600; }
-        .az-day-on { background:var(--az-primary); color:white; }
-        .az-day-off { background:var(--az-border); color:var(--az-text2); }
-        .az-loading { text-align:center; padding:32px; color:var(--az-text2); }
-        .az-spinner { display:inline-block; width:24px; height:24px; border:3px solid var(--az-border); border-top-color:var(--az-primary); border-radius:50%; animation:az-spin 0.8s linear infinite; }
+        .az-schedule-toggle input:checked + .az-toggle-slider:before { transform:translateX(24px); }
+        .az-schedule-actions { display:flex; gap:8px; flex-shrink:0; margin-left: auto; }
+        .az-days { display:flex; gap:6px; padding:0 24px 24px; margin-top: auto; }
+        .az-day { flex: 1; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:0.85em; font-weight:700; text-transform: uppercase; letter-spacing: 0.5px; }
+        .az-day-on { background:var(--az-primary); color:var(--text-primary-color, white); box-shadow: 0 4px 10px rgba(74, 144, 217, 0.3); }
+        .az-day-off { background:var(--az-surface); color:var(--az-text2); border: 1px solid var(--az-border); }
+        .az-loading { text-align:center; padding:64px; color:var(--az-text2); grid-column: 1 / -1; font-size: 1.2em; }
+        .az-spinner { display:inline-block; width:36px; height:36px; border:4px solid var(--az-border); border-top-color:var(--az-primary); border-radius:50%; animation:az-spin 0.8s linear infinite; margin-bottom: 16px; }
         @keyframes az-spin { to { transform:rotate(360deg); } }
 
-        .az-editor-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:999; display:flex; align-items:center; justify-content:center; }
-        .az-editor { background:var(--az-bg); border-radius:16px; width:90%; max-width:420px; max-height:85vh; overflow-y:auto; border:1px solid var(--az-border); box-shadow:0 20px 60px rgba(0,0,0,0.5); }
-        .az-editor-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--az-border); }
-        .az-editor-header h3 { margin:0; font-size:1.05em; color:var(--az-text); }
-        .az-editor-body { padding:20px; display:flex; flex-direction:column; gap:18px; }
-        .az-field label { display:block; font-size:0.8em; font-weight:500; color:var(--az-text2); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px; }
-        .az-field input[type=text], .az-field input[type=number], .az-field select { width:100%; padding:10px 12px; border:1px solid var(--az-border); border-radius:8px; background:var(--az-surface); color:var(--az-text); font-size:0.9em; box-sizing:border-box; outline:none; transition:border 0.2s; }
+        dialog.az-editor-overlay { border:none; background:transparent; padding:0; outline:none; margin:auto; width: 100%; max-width: 600px; overflow:visible; }
+        dialog.az-editor-overlay::backdrop { background:rgba(0,0,0,0.8); backdrop-filter: blur(8px); }
+        .az-editor { background:var(--card-background-color, var(--az-bg)); border-radius:24px; width:100%; display:flex; flex-direction:column; max-height:90vh; border:1px solid var(--az-border); box-shadow:0 30px 90px rgba(0,0,0,0.6); overflow: hidden; }
+        .az-editor-header { display:flex; align-items:center; justify-content:space-between; padding:24px 32px; border-bottom:1px solid var(--az-border); background: var(--secondary-background-color, rgba(0,0,0,0.02)); }
+        .az-editor-header h3 { margin:0; font-size:1.4em; color:var(--az-text); font-weight: 600; }
+        .az-editor-body { padding:32px; display:flex; flex-direction:column; gap:28px; overflow-y:auto; }
+        .az-field label { display:block; font-size:0.85em; font-weight:700; color:var(--az-text2); margin-bottom:10px; text-transform:uppercase; letter-spacing:0.8px; }
+        .az-field input[type=text], .az-field input[type=number], .az-field select { width:100%; padding:14px 16px; border:2px solid var(--az-border); border-radius:12px; background:var(--primary-background-color, var(--az-surface)); color:var(--az-text); font-size:1.1em; box-sizing:border-box; outline:none; transition:border 0.2s; font-family: inherit; }
         .az-field input:focus, .az-field select:focus { border-color:var(--az-primary); }
-        .az-time-row { display:flex; gap:8px; align-items:center; }
-        .az-time-row input { width:70px; text-align:center; }
-        .az-time-row span { color:var(--az-text); font-size:1.2em; font-weight:600; }
-        .az-days-editor { display:flex; gap:6px; }
-        .az-day-btn { width:40px; height:36px; border:1px solid var(--az-border); border-radius:8px; background:transparent; color:var(--az-text2); font-size:0.8em; font-weight:600; cursor:pointer; transition:all 0.2s; }
-        .az-day-btn.active { background:var(--az-primary); color:white; border-color:var(--az-primary); }
-        .az-modes-editor { display:flex; gap:6px; flex-wrap:wrap; }
-        .az-mode-btn { padding:8px 14px; border:1px solid var(--az-border); border-radius:8px; background:transparent; color:var(--az-text); font-size:0.8em; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:4px; }
-        .az-mode-btn.active { border-color:var(--az-primary); background:rgba(74,144,217,0.15); }
-        .az-temp-row { display:flex; align-items:center; gap:12px; }
-        .az-temp-val { font-size:1.8em; font-weight:600; color:var(--az-text); min-width:70px; text-align:center; }
-        .az-temp-unit { font-size:0.5em; color:var(--az-text2); }
-        .az-temp-btn { width:36px; height:36px; border-radius:50%; border:1px solid var(--az-border); background:transparent; color:var(--az-text); font-size:1.2em; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; }
-        .az-temp-btn:hover { background:var(--az-primary); color:white; border-color:var(--az-primary); }
-        .az-editor-footer { display:flex; justify-content:flex-end; gap:8px; padding:16px 20px; border-top:1px solid var(--az-border); }
-        .az-toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); padding:10px 20px; border-radius:8px; color:white; font-size:0.85em; z-index:1000; animation:az-fade-in 0.3s; }
-        @keyframes az-fade-in { from { opacity:0; transform:translateX(-50%) translateY(10px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
-        .az-devices { font-size:0.75em; color:var(--az-text2); padding:0 16px 12px; }
-        .az-unit-toggle { background:var(--az-surface); border:1px solid var(--az-border); border-radius:8px; padding:4px 2px; display:inline-flex; gap:0; }
-        .az-unit-btn { border:none; background:transparent; color:var(--az-text2); font-size:0.8em; font-weight:600; padding:4px 8px; border-radius:6px; cursor:pointer; transition:all 0.2s; }
-        .az-unit-btn.active { background:var(--az-primary); color:#fff; }
+        .az-time-row { display:flex; gap:12px; align-items:center; }
+        .az-time-row input { width:100px; text-align:center; font-size: 1.6em; font-weight: 600; padding: 12px; }
+        .az-time-row span { color:var(--az-text); font-size:2em; font-weight:600; margin-bottom: 6px; }
+        .az-days-editor { display:flex; gap:8px; }
+        .az-day-btn { flex:1; height:48px; border:2px solid var(--az-border); border-radius:12px; background:var(--primary-background-color, var(--az-surface)); color:var(--az-text2); font-size:0.9em; font-weight:700; text-transform: uppercase; cursor:pointer; transition:all 0.2s; }
+        .az-day-btn.active { background:var(--az-primary); color:white; border-color:var(--az-primary); box-shadow: 0 4px 12px rgba(74, 144, 217, 0.3); }
+        .az-modes-editor { display:flex; gap:10px; flex-wrap:wrap; }
+        .az-mode-btn { padding:12px 20px; border:2px solid var(--az-border); border-radius:12px; background:var(--primary-background-color, var(--az-surface)); color:var(--az-text); font-size:1em; font-weight: 500; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:8px; }
+        .az-mode-btn ha-icon { --mdc-icon-size: 20px; }
+        .az-mode-btn.active { border-color:var(--az-primary); background:rgba(74,144,217,0.1); color: var(--az-primary); }
+        .az-temp-row { display:flex; align-items:center; gap:24px; }
+        .az-temp-val { font-size:3.5em; font-weight:400; color:var(--az-text); min-width:120px; text-align:center; display: flex; align-items: flex-start; justify-content: center; letter-spacing: -2px; }
+        .az-temp-unit { font-size:0.35em; color:var(--az-text2); margin-top: 12px; font-weight: 600; letter-spacing: normal; }
+        .az-temp-btn { width:64px; height:64px; border-radius:50%; border:none; background:var(--primary-background-color, var(--az-surface)); color:var(--az-text); font-size:2em; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .az-temp-btn:hover { background:var(--az-primary); color:white; transform: scale(1.05); box-shadow: 0 8px 20px rgba(74, 144, 217, 0.4); }
+        .az-temp-btn:active { transform: scale(0.95); }
+        .az-editor-footer { display:flex; justify-content:flex-end; gap:12px; padding:24px 32px; border-top:1px solid var(--az-border); background: var(--secondary-background-color, rgba(0,0,0,0.02)); }
+        .az-toast { position:fixed; bottom:32px; left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:12px; color:white; font-size:1em; font-weight: 600; z-index:1000; animation:az-fade-in 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+        @keyframes az-fade-in { from { opacity:0; transform:translateX(-50%) translateY(20px) scale(0.9); } to { opacity:1; transform:translateX(-50%) translateY(0) scale(1); } }
+        .az-devices { font-size:0.85em; color:var(--az-text2); padding:0 24px 20px; margin-top: -8px; font-weight: 500; }
+        @media(max-width: 600px) {
+          .az-list { grid-template-columns: 1fr; padding: 0 16px 16px; }
+          .az-schedule-top { padding: 16px; flex-wrap: wrap; }
+          .az-schedule-actions { margin-left: 0; width: 100%; justify-content: flex-end; }
+          .az-editor-body { padding: 20px; }
+          .az-editor-header { padding: 20px; }
+          .az-editor-footer { padding: 20px; }
+          .az-temp-row { gap: 12px; justify-content: center; }
+        }
       </style>
       <div class="az-header">
-        <h2>📅 Airzone Schedules</h2>
+        <h2><ha-icon icon="mdi:calendar-clock"></ha-icon> Airzone Schedules</h2>
         <div class="az-header-actions">
           <div class="az-unit-toggle">
             <button class="az-unit-btn ${this._useFah ? '' : 'active'}" id="az-unit-c">°C</button>
             <button class="az-unit-btn ${this._useFah ? 'active' : ''}" id="az-unit-f">°F</button>
           </div>
-          <button class="az-btn az-btn-outline az-btn-sm" id="az-refresh">↻ Refresh</button>
-          <button class="az-btn az-btn-primary az-btn-sm" id="az-add">+ New</button>
+          <button class="az-btn az-btn-outline az-btn-sm" id="az-refresh"><ha-icon icon="mdi:refresh" style="--mdc-icon-size: 16px;"></ha-icon> Refresh</button>
+          <button class="az-btn az-btn-primary az-btn-sm" id="az-add"><ha-icon icon="mdi:plus" style="--mdc-icon-size: 16px;"></ha-icon> New</button>
         </div>
       </div>
       <div class="az-list" id="az-list">
@@ -149,7 +168,7 @@ class AirzoneSchedulesCard extends HTMLElement {
     this.appendChild(card);
     card.querySelector('#az-unit-c').addEventListener('click', () => this._setUnit(false));
     card.querySelector('#az-unit-f').addEventListener('click', () => this._setUnit(true));
-    card.querySelector('#az-refresh').addEventListener('click', () => this._loadSchedules());
+    card.querySelector('#az-refresh').addEventListener('click', () => this._loadData());
     card.querySelector('#az-add').addEventListener('click', () => this._openEditor(null));
   }
 
@@ -163,27 +182,49 @@ class AirzoneSchedulesCard extends HTMLElement {
     this._renderList();
   }
 
+  async _loadData() {
+    await this._loadDevices();
+    await this._loadSchedules();
+  }
+
+  async _loadDevices() {
+    if (this._availableDevices) return;
+    try {
+      const entities = await this._hass.callWS({ type: 'config/entity_registry/list' });
+      this._availableDevices = entities
+        .filter(e => e.platform === 'airzone_cloud' && e.entity_id.startsWith('climate.'))
+        .map(e => ({
+          id: e.unique_id,
+          name: e.name || e.original_name || (this._hass.states[e.entity_id] && this._hass.states[e.entity_id].attributes.friendly_name) || e.entity_id
+        }));
+    } catch (err) {
+      console.error('Failed to load entity registry', err);
+      this._availableDevices = [];
+    }
+  }
+
   async _loadSchedules() {
     const list = this.querySelector('#az-list');
     list.innerHTML = '<div class="az-loading"><div class="az-spinner"></div><br/>Loading schedules…</div>';
     try {
+      const svcData = this.config.config_entry ? { config_entry: this.config.config_entry } : {};
       const resp = await this._hass.callWS({
         type: 'call_service', domain: 'airzone_cloud', service: 'get_installation_schedules',
-        service_data: { config_entry: this.config.config_entry }, return_response: true
+        service_data: svcData, return_response: true
       });
       const raw = resp.response || resp;
       const data = raw.schedules || raw;
       this._schedules = Array.isArray(data) ? data : Object.entries(data).map(([id, s]) => ({ _id: id, ...s }));
       this._renderList();
     } catch (err) {
-      list.innerHTML = '<div class="az-empty"><div class="az-empty-icon">⚠️</div>Error loading schedules<br/><small>' + (err.message || '') + '</small></div>';
+      list.innerHTML = '<div class="az-empty"><div class="az-empty-icon"><ha-icon icon="mdi:alert-outline" style="--mdc-icon-size: 48px;"></ha-icon></div>Error loading schedules<br/><small>' + (err.message || '') + '</small></div>';
     }
   }
 
   _renderList() {
     const list = this.querySelector('#az-list');
     if (!this._schedules.length) {
-      list.innerHTML = '<div class="az-empty"><div class="az-empty-icon">📭</div>No schedules configured<br/><small>Click "+ New" to create one</small></div>';
+      list.innerHTML = '<div class="az-empty"><div class="az-empty-icon"><ha-icon icon="mdi:calendar-blank-outline" style="--mdc-icon-size: 48px;"></ha-icon></div>No schedules configured<br/><small>Click "New" to create one</small></div>';
       return;
     }
     list.innerHTML = '';
@@ -196,6 +237,9 @@ class AirzoneSchedulesCard extends HTMLElement {
       const temp = sc.setpoint ? this._displayTemp(sc.setpoint.celsius) : '—';
       const name = s.name || 'Unnamed Schedule';
       const deviceCount = (s.device_ids || []).length;
+      const deviceNamesStr = (s.device_ids || [])
+        .map(id => this._availableDevices?.find(d => d.id === id)?.name || id)
+        .join(', ');
 
       const el = document.createElement('div');
       el.className = 'az-schedule';
@@ -205,10 +249,10 @@ class AirzoneSchedulesCard extends HTMLElement {
           <div class="az-schedule-info">
             <div class="az-schedule-name">${name}</div>
             <div class="az-schedule-meta">
-              <span>⏰ ${time}</span>
-              <span>🌡️ ${temp}</span>
-              <span>${modeInfo.label}</span>
-              ${sc.pspeed ? '<span>💨 ' + sc.pspeed + '</span>' : ''}
+              <span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:clock-outline" style="--mdc-icon-size: 16px;"></ha-icon> ${time}</span>
+              <span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:thermometer" style="--mdc-icon-size: 16px;"></ha-icon> ${temp}</span>
+              <span style="display:flex; align-items:center; gap:4px;">${modeInfo.label}</span>
+              ${sc.pspeed ? '<span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:fan" style="--mdc-icon-size: 16px;"></ha-icon> ' + sc.pspeed + '</span>' : ''}
             </div>
           </div>
           <label class="az-schedule-toggle">
@@ -216,12 +260,12 @@ class AirzoneSchedulesCard extends HTMLElement {
             <span class="az-toggle-slider"></span>
           </label>
           <div class="az-schedule-actions">
-            <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-edit" data-id="${s._id}">✏️</button>
-            <button class="az-btn az-btn-danger az-btn-icon az-btn-sm az-del" data-id="${s._id}">🗑️</button>
+            <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-edit" data-id="${s._id}" title="Edit"><ha-icon icon="mdi:pencil" style="--mdc-icon-size: 18px;"></ha-icon></button>
+            <button class="az-btn az-btn-danger az-btn-icon az-btn-sm az-del" data-id="${s._id}" title="Delete"><ha-icon icon="mdi:delete" style="--mdc-icon-size: 18px;"></ha-icon></button>
           </div>
         </div>
         <div class="az-days">${DAY_LABELS.map((d, i) => '<span class="az-day ' + (days.includes(i) ? 'az-day-on' : 'az-day-off') + '">' + d + '</span>').join('')}</div>
-        ${deviceCount ? '<div class="az-devices">📍 ' + deviceCount + ' zone' + (deviceCount > 1 ? 's' : '') + '</div>' : ''}
+        ${deviceCount ? '<div class="az-devices" style="display:flex; align-items:center; gap:4px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="' + deviceNamesStr + '"><ha-icon icon="mdi:map-marker-outline" style="--mdc-icon-size: 16px; flex-shrink: 0;"></ha-icon> <span style="overflow: hidden; text-overflow: ellipsis;">' + deviceNamesStr + '</span></div>' : ''}
       `;
 
       el.querySelector('.az-edit').addEventListener('click', () => this._openEditor(s));
@@ -248,13 +292,13 @@ class AirzoneSchedulesCard extends HTMLElement {
     let selectedDays = [...days];
     let tempVal = temp;
 
-    const overlay = document.createElement('div');
+    const overlay = document.createElement('dialog');
     overlay.className = 'az-editor-overlay';
     overlay.innerHTML = `
       <div class="az-editor">
         <div class="az-editor-header">
-          <h3>${isNew ? '✨ New Schedule' : '✏️ Edit Schedule'}</h3>
-          <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-close">✕</button>
+          <h3 style="display:flex; align-items:center; gap:6px;">${isNew ? '<ha-icon icon="mdi:calendar-plus"></ha-icon> New Schedule' : '<ha-icon icon="mdi:pencil"></ha-icon> Edit Schedule'}</h3>
+          <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-close" title="Close"><ha-icon icon="mdi:close" style="--mdc-icon-size:18px;"></ha-icon></button>
         </div>
         <div class="az-editor-body">
           <div class="az-field">
@@ -284,9 +328,9 @@ class AirzoneSchedulesCard extends HTMLElement {
           <div class="az-field">
             <label>Temperature</label>
             <div class="az-temp-row">
-              <button class="az-temp-btn" id="ed-temp-down">−</button>
+              <button class="az-temp-btn" id="ed-temp-down" title="Decrease Temperature"><ha-icon icon="mdi:minus"></ha-icon></button>
               <div class="az-temp-val"><span id="ed-temp-display">${tempVal}</span><span class="az-temp-unit">${this._unitLabel()}</span></div>
-              <button class="az-temp-btn" id="ed-temp-up">+</button>
+              <button class="az-temp-btn" id="ed-temp-up" title="Increase Temperature"><ha-icon icon="mdi:plus"></ha-icon></button>
             </div>
           </div>
           <div class="az-field">
@@ -298,7 +342,18 @@ class AirzoneSchedulesCard extends HTMLElement {
               <option value="3" ${pspeed === '3' || pspeed === 3 ? 'selected' : ''}>High</option>
             </select>
           </div>
-          ${!isNew ? '<div class="az-field"><label>Device IDs</label><input type="text" id="ed-devices" value="' + deviceIds.join(', ') + '" placeholder="Comma-separated device IDs"/></div>' : ''}
+          <div class="az-field">
+            <label>Devices</label>
+            <div class="az-devices-editor" id="ed-devices-list" style="display:flex; flex-direction:column; gap:8px; max-height: 200px; overflow-y: auto; padding: 4px; border: 1px solid var(--az-border); border-radius: 12px; background: var(--primary-background-color, var(--az-surface));">
+              ${(this._availableDevices || []).map(d => `
+                <label style="display:flex; align-items:center; gap:12px; cursor:pointer; font-weight:500; text-transform:none; font-size:1em; color:var(--az-text); padding: 8px;">
+                  <input type="checkbox" class="ed-device-checkbox" value="${d.id}" ${(deviceIds.includes(d.id)) ? 'checked' : ''} style="width:20px; height:20px; accent-color:var(--az-primary); cursor:pointer;">
+                  ${d.name}
+                </label>
+              `).join('')}
+              ${(!this._availableDevices || this._availableDevices.length === 0) ? '<span style="color:var(--az-text2); padding: 12px;">No Airzone devices found.</span>' : ''}
+            </div>
+          </div>
         </div>
         <div class="az-editor-footer">
           <button class="az-btn az-btn-outline az-close">Cancel</button>
@@ -306,7 +361,8 @@ class AirzoneSchedulesCard extends HTMLElement {
         </div>
       </div>
     `;
-    document.body.appendChild(overlay);
+    this.querySelector('ha-card').appendChild(overlay);
+    overlay.showModal();
 
     // Day buttons
     overlay.querySelectorAll('.az-day-btn').forEach(btn => {
@@ -332,8 +388,9 @@ class AirzoneSchedulesCard extends HTMLElement {
     overlay.querySelector('#ed-temp-down').addEventListener('click', () => { tempVal = Math.max(minT, tempVal - step); tempDisplay.textContent = tempVal; });
     overlay.querySelector('#ed-temp-up').addEventListener('click', () => { tempVal = Math.min(maxT, tempVal + step); tempDisplay.textContent = tempVal; });
     // Close
-    overlay.querySelectorAll('.az-close').forEach(btn => btn.addEventListener('click', () => overlay.remove()));
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    const closeOverlay = () => { overlay.close(); overlay.remove(); };
+    overlay.querySelectorAll('.az-close').forEach(btn => btn.addEventListener('click', closeOverlay));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeOverlay(); });
 
     // Save
     overlay.querySelector('#ed-save').addEventListener('click', async () => {
@@ -341,8 +398,7 @@ class AirzoneSchedulesCard extends HTMLElement {
       const edHour = parseInt(overlay.querySelector('#ed-hour').value) || 0;
       const edMin = parseInt(overlay.querySelector('#ed-min').value) || 0;
       const edSpeed = overlay.querySelector('#ed-pspeed').value;
-      const devicesEl = overlay.querySelector('#ed-devices');
-      const devIds = devicesEl ? devicesEl.value.split(',').map(s => s.trim()).filter(Boolean) : (schedule ? schedule.device_ids || [] : []);
+      const devIds = Array.from(overlay.querySelectorAll('.ed-device-checkbox:checked')).map(cb => cb.value);
 
       const payload = {
         name: edName,
@@ -360,18 +416,18 @@ class AirzoneSchedulesCard extends HTMLElement {
       };
 
       try {
+        const svcData = { schedule_data: payload };
+        if (this.config.config_entry) svcData.config_entry = this.config.config_entry;
+
         if (isNew) {
-          await this._hass.callService('airzone_cloud', 'post_installation_schedule', {
-            config_entry: this.config.config_entry, schedule_data: payload
-          });
+          await this._hass.callService('airzone_cloud', 'post_installation_schedule', svcData);
           this._toast('Schedule created!');
         } else {
-          await this._hass.callService('airzone_cloud', 'patch_installation_schedule', {
-            config_entry: this.config.config_entry, schedule_id: schedule._id, schedule_data: payload
-          });
+          svcData.schedule_id = schedule._id;
+          await this._hass.callService('airzone_cloud', 'patch_installation_schedule', svcData);
           this._toast('Schedule updated!');
         }
-        overlay.remove();
+        closeOverlay();
         this._loadSchedules();
       } catch (err) {
         this._toast('Error: ' + (err.message || 'Unknown'), true);
@@ -380,12 +436,18 @@ class AirzoneSchedulesCard extends HTMLElement {
   }
 
   async _toggleSchedule(schedule, active) {
+    const schedId = schedule._id || schedule.id;
+    if (!schedId) {
+      this._toast('Error: Schedule ID missing', true);
+      return;
+    }
+
     try {
       const sc = schedule.start_conf || {};
       const payload = {
-        name: schedule.name || 'Schedule',
+        name: schedule.name,
         type: schedule.type || 'week',
-        prog_enabled: active,
+        prog_enabled: !!active,
         setpoint: sc.setpoint ? sc.setpoint.celsius : undefined,
         start_conf: {
           mode: sc.mode,
@@ -396,14 +458,18 @@ class AirzoneSchedulesCard extends HTMLElement {
         },
         device_ids: schedule.device_ids || [],
       };
-      await this._hass.callService('airzone_cloud', 'patch_installation_schedule', {
-        config_entry: this.config.config_entry, schedule_id: schedule._id,
+
+      const svcData = {
+        schedule_id: schedId,
         schedule_data: payload
-      });
+      };
+      if (this.config.config_entry) svcData.config_entry = this.config.config_entry;
+
+      await this._hass.callService('airzone_cloud', 'patch_installation_schedule', svcData);
       this._toast(active ? 'Schedule enabled' : 'Schedule disabled');
       this._loadSchedules();
     } catch (err) {
-      this._toast('Error: ' + (err.message || ''), true);
+      this._toast('Error: ' + (err.message || 'Check console'), true);
       this._loadSchedules();
     }
   }
@@ -411,9 +477,9 @@ class AirzoneSchedulesCard extends HTMLElement {
   async _deleteSchedule(id) {
     if (!confirm('Delete this schedule? This cannot be undone.')) return;
     try {
-      await this._hass.callService('airzone_cloud', 'delete_installation_schedule', {
-        config_entry: this.config.config_entry, schedule_id: id
-      });
+      const svcData = { schedule_id: id };
+      if (this.config.config_entry) svcData.config_entry = this.config.config_entry;
+      await this._hass.callService('airzone_cloud', 'delete_installation_schedule', svcData);
       this._toast('Schedule deleted');
       this._loadSchedules();
     } catch (err) {
@@ -428,6 +494,10 @@ class AirzoneSchedulesCard extends HTMLElement {
     t.textContent = msg;
     this.appendChild(t);
     setTimeout(() => t.remove(), 3000);
+  }
+
+  static getStubConfig() {
+    return { type: "custom:airzone-schedules-card" };
   }
 
   getCardSize() { return 4; }
