@@ -44,6 +44,7 @@ class AirzoneSchedulesCard extends HTMLElement {
     this._activeTab = localStorage.getItem('az-active-tab') || 'schedules';
     this._filterSeason = null; // null = all, 'winter', 'summer'
     this._filterAway = null;   // null = all, true, false
+    this._lastScheduleLoad = 0;
   }
 
   _displayTemp(celsius) {
@@ -86,6 +87,12 @@ class AirzoneSchedulesCard extends HTMLElement {
       if (zoneHash !== this._lastZoneHash) {
         this._lastZoneHash = zoneHash;
         this._renderZones();
+      }
+    }
+    if (this._initialized && this._activeTab === 'schedules') {
+      const now = Date.now();
+      if (now - this._lastScheduleLoad > 60000) {
+        this._loadSchedules();
       }
     }
   }
@@ -372,6 +379,7 @@ class AirzoneSchedulesCard extends HTMLElement {
   async _loadSchedules() {
     const list = this.querySelector('#az-tab-schedules');
     if (!list) return;
+    this._lastScheduleLoad = Date.now();
     list.innerHTML = '<div class="az-loading"><div class="az-spinner"></div><br/>Loading schedules…</div>';
     try {
       const svcData = this.config.config_entry ? { config_entry: this.config.config_entry } : {};
