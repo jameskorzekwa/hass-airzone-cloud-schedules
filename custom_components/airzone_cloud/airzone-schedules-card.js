@@ -42,6 +42,8 @@ class AirzoneSchedulesCard extends HTMLElement {
     this._initialized = false;
     this._useFah = localStorage.getItem('az-temp-unit') !== 'C';
     this._activeTab = localStorage.getItem('az-active-tab') || 'schedules';
+    this._filterSeason = null; // null = all, 'winter', 'summer'
+    this._filterAway = null;   // null = all, true, false
   }
 
   _displayTemp(celsius) {
@@ -177,6 +179,14 @@ class AirzoneSchedulesCard extends HTMLElement {
         @keyframes az-fade-in { from { opacity:0; transform:translateX(-50%) translateY(20px) scale(0.9); } to { opacity:1; transform:translateX(-50%) translateY(0) scale(1); } }
         .az-devices { font-size:0.85em; color:var(--az-text2); padding:0 24px 20px; margin-top: 4px; font-weight: 500; }
 
+        .az-filters { display:flex; gap:8px; padding:16px 32px 8px; flex-wrap:wrap; align-items:center; }
+        ha-card.is-panel .az-filters { padding: 16px 0 8px 0; }
+        .az-filter-label { font-size:0.85em; font-weight:600; color:var(--az-text2); text-transform:uppercase; letter-spacing:0.5px; margin-right:4px; }
+        .az-filter-btn { border:1px solid var(--az-border); background:var(--az-surface); color:var(--az-text2); font-size:0.85em; font-weight:600; padding:6px 14px; border-radius:20px; cursor:pointer; transition:all 0.2s; font-family:inherit; display:inline-flex; align-items:center; gap:4px; }
+        .az-filter-btn:hover { border-color:var(--az-text2); }
+        .az-filter-btn.active { background:var(--az-primary); color:var(--text-primary-color, #fff); border-color:var(--az-primary); }
+        .az-filter-btn ha-icon { --mdc-icon-size: 14px; }
+
         .az-zone { background:var(--card-background-color, var(--az-surface)); border-radius:16px; overflow:hidden; border:1px solid var(--az-border); transition:all 0.2s; box-shadow: 0 4px 16px rgba(0,0,0,0.06); display:flex; flex-direction:column; padding:24px; gap:16px; }
         .az-zone:hover { border-color:var(--az-primary); transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.1); }
         .az-zone-header { display:flex; align-items:center; gap:16px; }
@@ -223,6 +233,16 @@ class AirzoneSchedulesCard extends HTMLElement {
         <button class="az-tab ${this._activeTab === 'zones' ? 'active' : ''}" data-tab="zones"><ha-icon icon="mdi:home-thermometer-outline"></ha-icon> Zones</button>
         <button class="az-tab ${this._activeTab === 'schedules' ? 'active' : ''}" data-tab="schedules"><ha-icon icon="mdi:calendar-clock"></ha-icon> Schedules</button>
       </div>
+      <div id="az-filters" class="az-filters" style="display:${this._activeTab === 'schedules' ? 'flex' : 'none'}">
+        <span class="az-filter-label">Season:</span>
+        <button class="az-filter-btn active" data-filter="season" data-value="all">All</button>
+        <button class="az-filter-btn" data-filter="season" data-value="winter"><ha-icon icon="mdi:snowflake"></ha-icon> Winter</button>
+        <button class="az-filter-btn" data-filter="season" data-value="summer"><ha-icon icon="mdi:white-balance-sunny"></ha-icon> Summer</button>
+        <span class="az-filter-label" style="margin-left:12px;">Away:</span>
+        <button class="az-filter-btn active" data-filter="away" data-value="all">All</button>
+        <button class="az-filter-btn" data-filter="away" data-value="yes"><ha-icon icon="mdi:airplane"></ha-icon> Away</button>
+        <button class="az-filter-btn" data-filter="away" data-value="no"><ha-icon icon="mdi:home"></ha-icon> Not Away</button>
+      </div>
       <div id="az-tab-schedules" class="az-list" style="display:${this._activeTab === 'schedules' ? '' : 'none'}">
         <div class="az-loading"><div class="az-spinner"></div><br/>Loading schedules…</div>
       </div>
@@ -241,6 +261,9 @@ class AirzoneSchedulesCard extends HTMLElement {
     card.querySelectorAll('.az-tab').forEach(btn => {
       btn.addEventListener('click', () => this._switchTab(btn.dataset.tab));
     });
+    card.querySelectorAll('.az-filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => this._setFilter(btn.dataset.filter, btn.dataset.value));
+    });
   }
 
   _switchTab(tab) {
@@ -249,13 +272,28 @@ class AirzoneSchedulesCard extends HTMLElement {
     const schedTab = this.querySelector('#az-tab-schedules');
     const zonesTab = this.querySelector('#az-tab-zones');
     const addBtn = this.querySelector('#az-add');
+    const filters = this.querySelector('#az-filters');
     schedTab.style.display = tab === 'schedules' ? '' : 'none';
     zonesTab.style.display = tab === 'zones' ? '' : 'none';
     addBtn.style.display = tab === 'schedules' ? 'inline-flex' : 'none';
+    if (filters) filters.style.display = tab === 'schedules' ? 'flex' : 'none';
     this.querySelectorAll('.az-tab').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.tab === tab);
     });
     if (tab === 'zones') this._renderZones();
+  }
+
+  _setFilter(type, value) {
+    if (type === 'season') {
+      this._filterSeason = value === 'all' ? null : value;
+    } else if (type === 'away') {
+      this._filterAway = value === 'all' ? null : value === 'yes';
+    }
+    // Update active states on filter buttons
+    this.querySelectorAll(`.az-filter-btn[data-filter="${type}"]`).forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.value === value);
+    });
+    this._renderList();
   }
 
   _setUnit(useFah) {
@@ -334,7 +372,22 @@ class AirzoneSchedulesCard extends HTMLElement {
       return;
     }
     list.innerHTML = '';
-    const sorted = [...this._schedules].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    let sorted = [...this._schedules].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    // Apply filters
+    if (this._filterSeason !== null || this._filterAway !== null) {
+      sorted = sorted.filter(s => {
+        const tags = this._tags[s._id] || {};
+        if (this._filterSeason !== null && (tags.season || null) !== this._filterSeason) return false;
+        if (this._filterAway !== null && !!tags.away !== this._filterAway) return false;
+        return true;
+      });
+    }
+
+    if (!sorted.length) {
+      list.innerHTML = '<div class="az-empty"><div class="az-empty-icon"><ha-icon icon="mdi:filter-off-outline" style="--mdc-icon-size: 48px;"></ha-icon></div>No schedules match the current filters</div>';
+      return;
+    }
     for (const s of sorted) {
       const sc = s.start_conf || {};
       const modeInfo = MODES[sc.mode] || DEFAULT_MODE;
@@ -399,6 +452,11 @@ class AirzoneSchedulesCard extends HTMLElement {
         return eid.includes('airzone');
       })
       .map(([eid, state]) => ({ entity_id: eid, ...state }))
+      // Filter out installation/group entities (e.g. "Home") — only show individual zones
+      .filter(z => {
+        const name = (z.attributes.friendly_name || '').toLowerCase();
+        return !name.endsWith('home') && !name.endsWith('installation');
+      })
       .sort((a, b) => (a.attributes.friendly_name || '').localeCompare(b.attributes.friendly_name || ''));
 
     if (!climateEntities.length) {
