@@ -40,7 +40,7 @@ class AirzoneSchedulesCard extends HTMLElement {
     this._schedules = [];
     this._tags = {};
     this._initialized = false;
-    this._useFah = localStorage.getItem('az-temp-unit') === 'F';
+    this._useFah = localStorage.getItem('az-temp-unit') !== 'C';
     this._activeTab = localStorage.getItem('az-active-tab') || 'schedules';
   }
 
@@ -55,6 +55,7 @@ class AirzoneSchedulesCard extends HTMLElement {
   }
 
   _unitLabel() { return this._useFah ? '°F' : '°C'; }
+  _haUnitLabel() { return this._hass?.config?.unit_system?.temperature || '°C'; }
   _toDisplay(celsius) { return this._useFah ? cToF(celsius) : celsius; }
   _toCelsius(display) { return this._useFah ? fToC(display) : display; }
 
@@ -438,13 +439,13 @@ class AirzoneSchedulesCard extends HTMLElement {
         </div>
         <div class="az-zone-temps">
           <div class="az-zone-current">
-            <div class="az-zone-current-val">${this._displayTempVal(currentTemp)}<span style="font-size:0.4em; color:var(--az-text2);">${this._unitLabel()}</span></div>
+            <div class="az-zone-current-val">${currentTemp != null ? currentTemp : '—'}<span style="font-size:0.4em; color:var(--az-text2);">${this._haUnitLabel()}</span></div>
             <div class="az-zone-current-label">Current</div>
           </div>
           ${!isOff && targetTemp != null ? `
           <div class="az-zone-target">
             <button class="az-zone-temp-btn az-zone-temp-down" data-entity="${zone.entity_id}" data-min="${minTemp}"><ha-icon icon="mdi:minus" style="--mdc-icon-size:18px;"></ha-icon></button>
-            <div class="az-zone-target-val">${this._displayTempVal(targetTemp)}<span style="font-size:0.5em; color:var(--az-text2);">${this._unitLabel()}</span></div>
+            <div class="az-zone-target-val">${targetTemp != null ? targetTemp : '—'}<span style="font-size:0.5em; color:var(--az-text2);">${this._haUnitLabel()}</span></div>
             <button class="az-zone-temp-btn az-zone-temp-up" data-entity="${zone.entity_id}" data-max="${maxTemp}"><ha-icon icon="mdi:plus" style="--mdc-icon-size:18px;"></ha-icon></button>
           </div>
           ` : '<div></div>'}
@@ -471,15 +472,19 @@ class AirzoneSchedulesCard extends HTMLElement {
       const upBtn = el.querySelector('.az-zone-temp-up');
       if (downBtn) {
         downBtn.addEventListener('click', () => {
-          const step = this._useFah ? 1 : 0.5;
-          const newTemp = Math.max(parseFloat(downBtn.dataset.min), (targetTemp || 21) - step);
+          const haFah = this._haUnitLabel() === '°F';
+          const step = haFah ? 1 : 0.5;
+          const curTarget = this._hass.states[zone.entity_id]?.attributes?.temperature || targetTemp || 21;
+          const newTemp = Math.max(parseFloat(downBtn.dataset.min), curTarget - step);
           this._hass.callService('climate', 'set_temperature', { entity_id: zone.entity_id, temperature: newTemp });
         });
       }
       if (upBtn) {
         upBtn.addEventListener('click', () => {
-          const step = this._useFah ? 1 : 0.5;
-          const newTemp = Math.min(parseFloat(upBtn.dataset.max), (targetTemp || 21) + step);
+          const haFah = this._haUnitLabel() === '°F';
+          const step = haFah ? 1 : 0.5;
+          const curTarget = this._hass.states[zone.entity_id]?.attributes?.temperature || targetTemp || 21;
+          const newTemp = Math.min(parseFloat(upBtn.dataset.max), curTarget + step);
           this._hass.callService('climate', 'set_temperature', { entity_id: zone.entity_id, temperature: newTemp });
         });
       }
