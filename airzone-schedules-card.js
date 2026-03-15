@@ -410,7 +410,11 @@ class AirzoneSchedulesCard extends HTMLElement {
       list.innerHTML = '<div class="az-empty"><div class="az-empty-icon"><ha-icon icon="mdi:filter-off-outline" style="--mdc-icon-size: 48px;"></ha-icon></div>No schedules match the current filters</div>';
       return;
     }
-    for (const s of sorted) {
+
+    const enabled = sorted.filter(s => s.prog_enabled !== false);
+    const disabled = sorted.filter(s => s.prog_enabled === false);
+
+    const buildCard = (s) => {
       const sc = s.start_conf || {};
       const modeInfo = MODES[sc.mode] || DEFAULT_MODE;
       const isActive = s.prog_enabled !== false;
@@ -457,8 +461,32 @@ class AirzoneSchedulesCard extends HTMLElement {
       el.querySelector('.az-dup').addEventListener('click', () => this._openEditor(s, true));
       el.querySelector('.az-del').addEventListener('click', () => this._deleteSchedule(s._id));
       el.querySelector('input[type=checkbox]').addEventListener('change', (e) => this._toggleSchedule(s, e.target.checked));
-      list.appendChild(el);
-    }
+      return el;
+    };
+
+    const buildGroup = (schedules, label, open) => {
+      const details = document.createElement('details');
+      if (open) details.setAttribute('open', '');
+      details.style.cssText = 'margin-bottom:8px;';
+      const summary = document.createElement('summary');
+      summary.style.cssText = 'list-style:none; display:flex; align-items:center; gap:8px; padding:10px 4px; cursor:pointer; font-weight:600; font-size:0.95em; color:var(--az-text2); user-select:none;';
+      summary.innerHTML = `<ha-icon icon="mdi:chevron-right" class="az-group-chevron" style="--mdc-icon-size:18px; transition:transform 0.2s;"></ha-icon>${label} <span style="margin-left:4px; font-weight:400; font-size:0.9em; opacity:0.7;">(${schedules.length})</span>`;
+      details.appendChild(summary);
+      for (const s of schedules) details.appendChild(buildCard(s));
+
+      // Rotate chevron when open
+      const updateChevron = () => {
+        const icon = summary.querySelector('.az-group-chevron');
+        if (icon) icon.style.transform = details.open ? 'rotate(90deg)' : '';
+      };
+      details.addEventListener('toggle', updateChevron);
+      updateChevron();
+
+      return details;
+    };
+
+    if (enabled.length) list.appendChild(buildGroup(enabled, 'Enabled', true));
+    if (disabled.length) list.appendChild(buildGroup(disabled, 'Disabled', false));
   }
 
   _renderZones() {
