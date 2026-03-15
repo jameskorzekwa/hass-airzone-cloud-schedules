@@ -140,7 +140,7 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-editor-footer { display:flex; justify-content:flex-end; gap:12px; padding:24px 32px; border-top:1px solid var(--az-border); background: var(--secondary-background-color, rgba(0,0,0,0.02)); }
         .az-toast { position:fixed; bottom:32px; left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:12px; color:white; font-size:1em; font-weight: 600; z-index:1000; animation:az-fade-in 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
         @keyframes az-fade-in { from { opacity:0; transform:translateX(-50%) translateY(20px) scale(0.9); } to { opacity:1; transform:translateX(-50%) translateY(0) scale(1); } }
-        .az-devices { font-size:0.85em; color:var(--az-text2); padding:0 24px 20px; margin-top: -8px; font-weight: 500; }
+        .az-devices { font-size:0.85em; color:var(--az-text2); padding:0 24px 20px; margin-top: 4px; font-weight: 500; }
         @media(max-width: 600px) {
           .az-list { grid-template-columns: 1fr; padding: 0 16px 16px; }
           .az-schedule-top { padding: 16px; flex-wrap: wrap; }
