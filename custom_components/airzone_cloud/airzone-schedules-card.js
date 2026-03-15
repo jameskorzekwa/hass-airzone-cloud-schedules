@@ -9,6 +9,25 @@ const MODES = {
 };
 const DEFAULT_MODE = { label: 'Unknown', icon: '<ha-icon icon="mdi:help-circle-outline"></ha-icon>', color: '#888' };
 
+const HVAC_MODE_MAP = {
+  heat: { label: 'Heating', icon: 'mdi:fire', color: '#e74c3c' },
+  cool: { label: 'Cooling', icon: 'mdi:snowflake', color: '#3498db' },
+  heat_cool: { label: 'Auto', icon: 'mdi:autorenew', color: '#9b59b6' },
+  auto: { label: 'Auto', icon: 'mdi:autorenew', color: '#9b59b6' },
+  dry: { label: 'Dry', icon: 'mdi:water-percent', color: '#f39c12' },
+  fan_only: { label: 'Fan', icon: 'mdi:fan', color: '#2ecc71' },
+  off: { label: 'Off', icon: 'mdi:power', color: '#888' },
+};
+
+const HVAC_ACTION_MAP = {
+  heating: { label: 'Heating', color: '#e74c3c' },
+  cooling: { label: 'Cooling', color: '#3498db' },
+  drying: { label: 'Drying', color: '#f39c12' },
+  fan: { label: 'Fan', color: '#2ecc71' },
+  idle: { label: 'Idle', color: '#888' },
+  off: { label: 'Off', color: '#555' },
+};
+
 function pad(n) { return String(n).padStart(2, '0'); }
 function fmtTime(h, m) { return pad(h) + ':' + pad(m); }
 function cToF(c) { return Math.round(c * 9 / 5 + 32); }
@@ -22,11 +41,17 @@ class AirzoneSchedulesCard extends HTMLElement {
     this._tags = {};
     this._initialized = false;
     this._useFah = localStorage.getItem('az-temp-unit') === 'F';
+    this._activeTab = localStorage.getItem('az-active-tab') || 'schedules';
   }
 
   _displayTemp(celsius) {
     if (celsius == null) return '—';
     return this._useFah ? cToF(celsius) + '°F' : celsius + '°C';
+  }
+
+  _displayTempVal(celsius) {
+    if (celsius == null) return '—';
+    return this._useFah ? cToF(celsius) : celsius;
   }
 
   _unitLabel() { return this._useFah ? '°F' : '°C'; }
@@ -43,6 +68,9 @@ class AirzoneSchedulesCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     this._tryInit();
+    if (this._initialized && this._activeTab === 'zones') {
+      this._renderZones();
+    }
   }
 
   setConfig(config) {
@@ -68,10 +96,16 @@ class AirzoneSchedulesCard extends HTMLElement {
         ha-card { transition: all 0.3s ease; }
         ha-card.is-panel { background: transparent; border: none; box-shadow: none; padding: 20px; max-width: 1400px; margin: 0 auto; }
         .az-header { display:flex; align-items:center; justify-content:space-between; padding:24px 32px 16px; }
-        ha-card.is-panel .az-header { padding: 16px 0 32px 0; }
+        ha-card.is-panel .az-header { padding: 16px 0 16px 0; }
         .az-header h2 { margin:0; font-size:1.8em; font-weight:600; color:var(--az-text); display:flex; align-items:center; gap:12px; }
         .az-header h2 ha-icon { --mdc-icon-size: 36px; color: var(--az-primary); }
         .az-header-actions { display:flex; gap:12px; align-items:center; }
+        .az-tabs { display:flex; gap:0; padding:0 32px 16px; border-bottom: 1px solid var(--az-border); }
+        ha-card.is-panel .az-tabs { padding: 0 0 16px 0; }
+        .az-tab { border:none; background:transparent; color:var(--az-text2); font-size:1.05em; font-weight:600; padding:12px 24px; cursor:pointer; transition:all 0.2s; border-bottom:3px solid transparent; font-family: inherit; display:flex; align-items:center; gap:8px; }
+        .az-tab:hover { color:var(--az-text); }
+        .az-tab.active { color:var(--az-primary); border-bottom-color:var(--az-primary); }
+        .az-tab ha-icon { --mdc-icon-size: 20px; }
         .az-btn { border:none; border-radius:10px; padding:10px 20px; font-size:1em; font-weight:600; cursor:pointer; transition:all 0.2s; display:inline-flex; align-items:center; gap:8px; font-family: inherit; }
         .az-btn-primary { background:var(--az-primary); color:var(--text-primary-color, #fff); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
         .az-btn-primary:hover { filter:brightness(1.15); transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,0.2); }
@@ -141,6 +175,26 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-toast { position:fixed; bottom:32px; left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:12px; color:white; font-size:1em; font-weight: 600; z-index:1000; animation:az-fade-in 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
         @keyframes az-fade-in { from { opacity:0; transform:translateX(-50%) translateY(20px) scale(0.9); } to { opacity:1; transform:translateX(-50%) translateY(0) scale(1); } }
         .az-devices { font-size:0.85em; color:var(--az-text2); padding:0 24px 20px; margin-top: 4px; font-weight: 500; }
+
+        .az-zone { background:var(--card-background-color, var(--az-surface)); border-radius:16px; overflow:hidden; border:1px solid var(--az-border); transition:all 0.2s; box-shadow: 0 4px 16px rgba(0,0,0,0.06); display:flex; flex-direction:column; padding:24px; gap:16px; }
+        .az-zone:hover { border-color:var(--az-primary); transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.1); }
+        .az-zone-header { display:flex; align-items:center; gap:16px; }
+        .az-zone-icon { width:52px; height:52px; border-radius:14px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+        .az-zone-icon ha-icon { --mdc-icon-size: 26px; }
+        .az-zone-name { font-weight:600; font-size:1.2em; color:var(--az-text); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .az-zone-action { font-size:0.8em; font-weight:600; padding:4px 10px; border-radius:8px; display:inline-flex; align-items:center; gap:4px; }
+        .az-zone-temps { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+        .az-zone-current { display:flex; flex-direction:column; align-items:center; gap:2px; }
+        .az-zone-current-val { font-size:2.4em; font-weight:300; color:var(--az-text); letter-spacing:-1px; }
+        .az-zone-current-label { font-size:0.75em; color:var(--az-text2); text-transform:uppercase; font-weight:600; letter-spacing:0.5px; }
+        .az-zone-target { display:flex; align-items:center; gap:12px; }
+        .az-zone-target-val { font-size:1.8em; font-weight:500; color:var(--az-primary); min-width:70px; text-align:center; }
+        .az-zone-temp-btn { width:40px; height:40px; border-radius:50%; border:none; background:var(--primary-background-color, var(--az-surface)); color:var(--az-text); font-size:1.4em; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .az-zone-temp-btn:hover { background:var(--az-primary); color:white; }
+        .az-zone-stats { display:flex; gap:16px; flex-wrap:wrap; font-size:0.9em; color:var(--az-text2); font-weight:500; }
+        .az-zone-stat { display:flex; align-items:center; gap:4px; }
+        .az-zone-stat ha-icon { --mdc-icon-size: 16px; }
+
         @media(max-width: 600px) {
           .az-list { grid-template-columns: 1fr; padding: 0 16px 16px; }
           .az-schedule-top { padding: 16px; flex-wrap: wrap; }
@@ -149,28 +203,58 @@ class AirzoneSchedulesCard extends HTMLElement {
           .az-editor-header { padding: 20px; }
           .az-editor-footer { padding: 20px; }
           .az-temp-row { gap: 12px; justify-content: center; }
+          .az-tabs { padding: 0 16px 12px; }
+          .az-tab { padding: 10px 16px; font-size: 0.95em; }
         }
       </style>
       <div class="az-header">
-        <h2><ha-icon icon="mdi:calendar-clock"></ha-icon> Airzone Schedules</h2>
+        <h2><ha-icon icon="mdi:air-conditioner"></ha-icon> Airzone</h2>
         <div class="az-header-actions">
           <div class="az-unit-toggle">
             <button class="az-unit-btn ${this._useFah ? '' : 'active'}" id="az-unit-c">°C</button>
             <button class="az-unit-btn ${this._useFah ? 'active' : ''}" id="az-unit-f">°F</button>
           </div>
           <button class="az-btn az-btn-outline az-btn-sm" id="az-refresh"><ha-icon icon="mdi:refresh" style="--mdc-icon-size: 16px;"></ha-icon> Refresh</button>
-          <button class="az-btn az-btn-primary az-btn-sm" id="az-add"><ha-icon icon="mdi:plus" style="--mdc-icon-size: 16px;"></ha-icon> New</button>
+          <button class="az-btn az-btn-primary az-btn-sm" id="az-add" style="display:${this._activeTab === 'schedules' ? 'inline-flex' : 'none'}"><ha-icon icon="mdi:plus" style="--mdc-icon-size: 16px;"></ha-icon> New</button>
         </div>
       </div>
-      <div class="az-list" id="az-list">
+      <div class="az-tabs">
+        <button class="az-tab ${this._activeTab === 'zones' ? 'active' : ''}" data-tab="zones"><ha-icon icon="mdi:home-thermometer-outline"></ha-icon> Zones</button>
+        <button class="az-tab ${this._activeTab === 'schedules' ? 'active' : ''}" data-tab="schedules"><ha-icon icon="mdi:calendar-clock"></ha-icon> Schedules</button>
+      </div>
+      <div id="az-tab-schedules" class="az-list" style="display:${this._activeTab === 'schedules' ? '' : 'none'}">
         <div class="az-loading"><div class="az-spinner"></div><br/>Loading schedules…</div>
+      </div>
+      <div id="az-tab-zones" class="az-list" style="display:${this._activeTab === 'zones' ? '' : 'none'}">
+        <div class="az-loading"><div class="az-spinner"></div><br/>Loading zones…</div>
       </div>
     `;
     this.appendChild(card);
     card.querySelector('#az-unit-c').addEventListener('click', () => this._setUnit(false));
     card.querySelector('#az-unit-f').addEventListener('click', () => this._setUnit(true));
-    card.querySelector('#az-refresh').addEventListener('click', () => this._loadData());
+    card.querySelector('#az-refresh').addEventListener('click', () => {
+      if (this._activeTab === 'schedules') this._loadData();
+      else this._renderZones();
+    });
     card.querySelector('#az-add').addEventListener('click', () => this._openEditor(null));
+    card.querySelectorAll('.az-tab').forEach(btn => {
+      btn.addEventListener('click', () => this._switchTab(btn.dataset.tab));
+    });
+  }
+
+  _switchTab(tab) {
+    this._activeTab = tab;
+    localStorage.setItem('az-active-tab', tab);
+    const schedTab = this.querySelector('#az-tab-schedules');
+    const zonesTab = this.querySelector('#az-tab-zones');
+    const addBtn = this.querySelector('#az-add');
+    schedTab.style.display = tab === 'schedules' ? '' : 'none';
+    zonesTab.style.display = tab === 'zones' ? '' : 'none';
+    addBtn.style.display = tab === 'schedules' ? 'inline-flex' : 'none';
+    this.querySelectorAll('.az-tab').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    if (tab === 'zones') this._renderZones();
   }
 
   _setUnit(useFah) {
@@ -180,7 +264,8 @@ class AirzoneSchedulesCard extends HTMLElement {
     const fBtn = this.querySelector('#az-unit-f');
     cBtn.classList.toggle('active', !useFah);
     fBtn.classList.toggle('active', useFah);
-    this._renderList();
+    if (this._activeTab === 'schedules') this._renderList();
+    else this._renderZones();
   }
 
   async _loadData() {
@@ -212,6 +297,7 @@ class AirzoneSchedulesCard extends HTMLElement {
         .filter(e => e.platform === 'airzone_cloud' && e.entity_id.startsWith('climate.'))
         .map(e => ({
           id: e.unique_id,
+          entity_id: e.entity_id,
           name: e.name || e.original_name || (this._hass.states[e.entity_id] && this._hass.states[e.entity_id].attributes.friendly_name) || e.entity_id
         }));
     } catch (err) {
@@ -221,7 +307,8 @@ class AirzoneSchedulesCard extends HTMLElement {
   }
 
   async _loadSchedules() {
-    const list = this.querySelector('#az-list');
+    const list = this.querySelector('#az-tab-schedules');
+    if (!list) return;
     list.innerHTML = '<div class="az-loading"><div class="az-spinner"></div><br/>Loading schedules…</div>';
     try {
       const svcData = this.config.config_entry ? { config_entry: this.config.config_entry } : {};
@@ -239,7 +326,8 @@ class AirzoneSchedulesCard extends HTMLElement {
   }
 
   _renderList() {
-    const list = this.querySelector('#az-list');
+    const list = this.querySelector('#az-tab-schedules');
+    if (!list) return;
     if (!this._schedules.length) {
       list.innerHTML = '<div class="az-empty"><div class="az-empty-icon"><ha-icon icon="mdi:calendar-blank-outline" style="--mdc-icon-size: 48px;"></ha-icon></div>No schedules configured<br/><small>Click "New" to create one</small></div>';
       return;
@@ -296,6 +384,110 @@ class AirzoneSchedulesCard extends HTMLElement {
     }
   }
 
+  _renderZones() {
+    const container = this.querySelector('#az-tab-zones');
+    if (!container || !this._hass) return;
+
+    // Get climate entities for airzone_cloud
+    const climateEntities = Object.entries(this._hass.states)
+      .filter(([eid]) => eid.startsWith('climate.'))
+      .filter(([eid]) => {
+        if (this._availableDevices && this._availableDevices.length) {
+          return this._availableDevices.some(d => d.entity_id === eid);
+        }
+        return eid.includes('airzone');
+      })
+      .map(([eid, state]) => ({ entity_id: eid, ...state }))
+      .sort((a, b) => (a.attributes.friendly_name || '').localeCompare(b.attributes.friendly_name || ''));
+
+    if (!climateEntities.length) {
+      container.innerHTML = '<div class="az-empty"><div class="az-empty-icon"><ha-icon icon="mdi:home-thermometer-outline" style="--mdc-icon-size: 48px;"></ha-icon></div>No Airzone zones found</div>';
+      return;
+    }
+
+    container.innerHTML = '';
+    for (const zone of climateEntities) {
+      const a = zone.attributes;
+      const name = a.friendly_name || zone.entity_id;
+      const currentTemp = a.current_temperature;
+      const targetTemp = a.temperature;
+      const humidity = a.current_humidity;
+      const hvacMode = zone.state || 'off';
+      const hvacAction = a.hvac_action || 'off';
+      const fanMode = a.fan_mode;
+      const minTemp = a.min_temp || 15;
+      const maxTemp = a.max_temp || 30;
+      const isOff = hvacMode === 'off';
+
+      const modeInfo = HVAC_MODE_MAP[hvacMode] || HVAC_MODE_MAP.off;
+      const actionInfo = HVAC_ACTION_MAP[hvacAction] || HVAC_ACTION_MAP.off;
+
+      const el = document.createElement('div');
+      el.className = 'az-zone';
+      el.innerHTML = `
+        <div class="az-zone-header">
+          <div class="az-zone-icon" style="background:${modeInfo.color}22; color:${modeInfo.color}">
+            <ha-icon icon="${modeInfo.icon}"></ha-icon>
+          </div>
+          <div class="az-zone-name">${name}</div>
+          <span class="az-zone-action" style="background:${actionInfo.color}22; color:${actionInfo.color};">${actionInfo.label}</span>
+          <label class="az-schedule-toggle">
+            <input type="checkbox" class="az-zone-power" ${!isOff ? 'checked' : ''} data-entity="${zone.entity_id}"/>
+            <span class="az-toggle-slider"></span>
+          </label>
+        </div>
+        <div class="az-zone-temps">
+          <div class="az-zone-current">
+            <div class="az-zone-current-val">${this._displayTempVal(currentTemp)}<span style="font-size:0.4em; color:var(--az-text2);">${this._unitLabel()}</span></div>
+            <div class="az-zone-current-label">Current</div>
+          </div>
+          ${!isOff && targetTemp != null ? `
+          <div class="az-zone-target">
+            <button class="az-zone-temp-btn az-zone-temp-down" data-entity="${zone.entity_id}" data-min="${minTemp}"><ha-icon icon="mdi:minus" style="--mdc-icon-size:18px;"></ha-icon></button>
+            <div class="az-zone-target-val">${this._displayTempVal(targetTemp)}<span style="font-size:0.5em; color:var(--az-text2);">${this._unitLabel()}</span></div>
+            <button class="az-zone-temp-btn az-zone-temp-up" data-entity="${zone.entity_id}" data-max="${maxTemp}"><ha-icon icon="mdi:plus" style="--mdc-icon-size:18px;"></ha-icon></button>
+          </div>
+          ` : '<div></div>'}
+        </div>
+        <div class="az-zone-stats">
+          ${humidity != null ? '<span class="az-zone-stat"><ha-icon icon="mdi:water-percent"></ha-icon> ' + humidity + '%</span>' : ''}
+          ${fanMode ? '<span class="az-zone-stat"><ha-icon icon="mdi:fan"></ha-icon> ' + fanMode + '</span>' : ''}
+          <span class="az-zone-stat"><ha-icon icon="mdi:${modeInfo.icon.replace('mdi:', '')}"></ha-icon> ${modeInfo.label}</span>
+        </div>
+      `;
+
+      // Power toggle
+      el.querySelector('.az-zone-power').addEventListener('change', (e) => {
+        const eid = e.target.dataset.entity;
+        if (e.target.checked) {
+          this._hass.callService('climate', 'turn_on', { entity_id: eid });
+        } else {
+          this._hass.callService('climate', 'turn_off', { entity_id: eid });
+        }
+      });
+
+      // Temp buttons
+      const downBtn = el.querySelector('.az-zone-temp-down');
+      const upBtn = el.querySelector('.az-zone-temp-up');
+      if (downBtn) {
+        downBtn.addEventListener('click', () => {
+          const step = this._useFah ? 1 : 0.5;
+          const newTemp = Math.max(parseFloat(downBtn.dataset.min), (targetTemp || 21) - step);
+          this._hass.callService('climate', 'set_temperature', { entity_id: zone.entity_id, temperature: newTemp });
+        });
+      }
+      if (upBtn) {
+        upBtn.addEventListener('click', () => {
+          const step = this._useFah ? 1 : 0.5;
+          const newTemp = Math.min(parseFloat(upBtn.dataset.max), (targetTemp || 21) + step);
+          this._hass.callService('climate', 'set_temperature', { entity_id: zone.entity_id, temperature: newTemp });
+        });
+      }
+
+      container.appendChild(el);
+    }
+  }
+
   _openEditor(schedule, isDuplicate = false) {
     const isNew = !schedule || isDuplicate;
     const useDefaults = !schedule;
@@ -310,8 +502,8 @@ class AirzoneSchedulesCard extends HTMLElement {
     const pspeed = useDefaults ? 'auto' : (sc.pspeed || 'auto');
     const deviceIds = useDefaults ? [] : (schedule.device_ids || []);
     const existingTags = schedule ? (this._tags[schedule._id] || {}) : {};
-    const edSeason = isDuplicate ? (existingTags.season || '') : (existingTags.season || '');
-    const edAway = isDuplicate ? !!existingTags.away : !!existingTags.away;
+    const edSeason = existingTags.season || '';
+    const edAway = !!existingTags.away;
 
     let selectedMode = mode;
     let selectedDays = [...days];
@@ -486,7 +678,6 @@ class AirzoneSchedulesCard extends HTMLElement {
             await this._hass.callService('airzone_cloud', 'set_schedule_tags', tagData);
           } catch (tagErr) { console.warn('Failed to save tags', tagErr); }
         } else if (tagScheduleId && !seasonVal && !awayVal) {
-          // Clear tags if both are unset
           try {
             const tagData = { schedule_id: tagScheduleId, season: null, away: false };
             if (this.config.config_entry) tagData.config_entry = this.config.config_entry;
@@ -577,5 +768,5 @@ window.customCards.push({
   type: "airzone-schedules-card",
   name: "Airzone Schedules",
   preview: true,
-  description: "Manage schedules for your Airzone Cloud installation"
+  description: "Manage schedules and zones for your Airzone Cloud installation"
 });
