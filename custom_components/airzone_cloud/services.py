@@ -17,6 +17,7 @@ ATTR_ACTIVE = "active"
 ATTR_ENABLED = "enabled"
 ATTR_SEASON = "season"
 ATTR_AWAY = "away"
+ATTR_ALL = "all"
 
 GET_SCHEDULES_SCHEMA = vol.Schema(
     {
@@ -74,6 +75,7 @@ TOGGLE_SCHEDULE_SCHEMA = vol.Schema(
         vol.Optional(ATTR_SCHEDULE_NAME): vol.All(cv.ensure_list, [cv.string]),
         vol.Optional(ATTR_SEASON): vol.Any("winter", "summer"),
         vol.Optional(ATTR_AWAY): cv.boolean,
+        vol.Optional(ATTR_ALL): cv.boolean,
         vol.Required(ATTR_ENABLED): cv.boolean,
     }
 )
@@ -155,10 +157,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         schedule_names = call.data.get(ATTR_SCHEDULE_NAME)
         filter_season = call.data.get(ATTR_SEASON)
         filter_away = call.data.get(ATTR_AWAY)
+        toggle_all = call.data.get(ATTR_ALL, False)
         enabled = call.data[ATTR_ENABLED]
 
-        if not schedule_names and filter_season is None and filter_away is None:
-            raise HomeAssistantError("Provide schedule_name, season, away, or a combination to select schedules")
+        if not toggle_all and not schedule_names and filter_season is None and filter_away is None:
+            raise HomeAssistantError("Provide schedule_name, season, away, all, or a combination to select schedules")
 
         airzone, installation = _get_api_and_installation(hass, call.data.get(ATTR_CONFIG_ENTRY))
 

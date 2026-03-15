@@ -104,6 +104,12 @@ toggle_schedule:
       required: false
       selector:
         boolean:
+    all:
+      name: All
+      description: Toggle all schedules. When true, ignores name/season/away filters.
+      required: false
+      selector:
+        boolean:
     enabled:
       name: Enabled
       description: Whether the matching schedules should be enabled or disabled.
