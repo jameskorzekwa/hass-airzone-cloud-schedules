@@ -467,7 +467,7 @@ class AirzoneSchedulesCard extends HTMLElement {
     const buildGroup = (schedules, label, open) => {
       const details = document.createElement('details');
       if (open) details.setAttribute('open', '');
-      details.style.cssText = 'margin-bottom:8px;';
+      details.style.cssText = 'margin-bottom:8px; grid-column: 1 / -1;';
       const summary = document.createElement('summary');
       summary.style.cssText = 'list-style:none; display:flex; align-items:center; gap:8px; padding:10px 4px; cursor:pointer; font-weight:600; font-size:0.95em; color:var(--az-text2); user-select:none;';
       summary.innerHTML = `<ha-icon icon="mdi:chevron-right" class="az-group-chevron" style="--mdc-icon-size:18px; transition:transform 0.2s;"></ha-icon>${label} <span style="margin-left:4px; font-weight:400; font-size:0.9em; opacity:0.7;">(${schedules.length})</span>`;
