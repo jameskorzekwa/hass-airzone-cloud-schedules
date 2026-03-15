@@ -58,7 +58,7 @@ Toggles the global active state for installation schedules.
 To make editing schedules painless, this repository also includes a custom frontend card!
 
 ### Installation
-1. Copy the `airzone-schedules-card.js` file from this repository into your Home Assistant's `config/www/` directory. (If the `www` directory does not exist, create it and restart Home Assistant).
+1. Copy `custom_components/airzone_cloud/airzone-schedules-card.js` from this repository into your Home Assistant's `config/www/` directory. (If the `www` directory does not exist, create it and restart Home Assistant).
 2. In Home Assistant, navigate to **Settings** -> **Dashboards** -> click the three dots in the top right -> **Resources**.
 3. Click "Add Resource".
 4. For the URL enter `/local/airzone-schedules-card.js` and set the type to **JavaScript Module**.
