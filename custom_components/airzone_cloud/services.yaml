@@ -71,6 +71,31 @@ patch_installation_schedule:
       selector:
         object:
 
+toggle_schedule:
+  name: "Toggle Schedule"
+  description: "Enable or disable a single schedule by name."
+  fields:
+    config_entry:
+      name: Config Entry
+      description: The Airzone Cloud integration config entry.
+      required: false
+      selector:
+        config_entry:
+          integration: airzone_cloud
+    schedule_name:
+      name: Schedule Name
+      description: The name of the schedule (as shown in the Airzone Schedules panel).
+      required: true
+      example: "Winter Day"
+      selector:
+        text:
+    enabled:
+      name: Enabled
+      description: Whether the schedule should be enabled or disabled.
+      required: true
+      selector:
+        boolean:
+
 patch_installation_schedules_activate:
   name: "Activate/Deactivate Schedules"
   description: "Globally activates or deactivates schedules for an Airzone Cloud installation."

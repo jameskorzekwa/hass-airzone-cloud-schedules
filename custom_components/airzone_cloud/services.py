@@ -12,7 +12,9 @@ DOMAIN = "airzone_cloud"
 ATTR_CONFIG_ENTRY = "config_entry"
 ATTR_SCHEDULE_ID = "schedule_id"
 ATTR_SCHEDULE_DATA = "schedule_data"
+ATTR_SCHEDULE_NAME = "schedule_name"
 ATTR_ACTIVE = "active"
+ATTR_ENABLED = "enabled"
 
 GET_SCHEDULES_SCHEMA = vol.Schema(
     {
@@ -46,6 +48,14 @@ PATCH_SCHEDULES_ACTIVATE_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_CONFIG_ENTRY): cv.string,
         vol.Required(ATTR_ACTIVE): cv.boolean,
+    }
+)
+
+TOGGLE_SCHEDULE_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_CONFIG_ENTRY): cv.string,
+        vol.Required(ATTR_SCHEDULE_NAME): cv.string,
+        vol.Required(ATTR_ENABLED): cv.boolean,
     }
 )
 
@@ -118,6 +128,57 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         res = await airzone.api_patch_installation_schedules_activate(installation, call.data[ATTR_ACTIVE])
         return {"response": res}
 
+    async def async_toggle_schedule(call: ServiceCall) -> None:
+        """Enable or disable a single schedule by name."""
+        schedule_name = call.data[ATTR_SCHEDULE_NAME]
+        enabled = call.data[ATTR_ENABLED]
+        airzone, installation = _get_api_and_installation(hass, call.data.get(ATTR_CONFIG_ENTRY))
+
+        # Fetch all schedules and find the one matching by name
+        schedules = await airzone.api_get_installation_schedules(installation)
+        if not isinstance(schedules, list):
+            raise HomeAssistantError("Unexpected response from Airzone API")
+
+        match = None
+        for s in schedules:
+            if s.get("name", "").lower() == schedule_name.lower():
+                match = s
+                break
+
+        if not match:
+            names = [s.get("name", "?") for s in schedules]
+            raise HomeAssistantError(f"Schedule '{schedule_name}' not found. Available: {', '.join(names)}")
+
+        schedule_id = match["_id"]
+        sc = match.get("start_conf", {})
+
+        payload = {
+            "schedule": {
+                "name": match.get("name"),
+                "type": match.get("type", "week"),
+                "prog_enabled": enabled,
+                "setpoint": sc.get("setpoint", {}).get("celsius")
+                if isinstance(sc.get("setpoint"), dict)
+                else sc.get("setpoint"),
+                "start_conf": {
+                    "mode": sc.get("mode"),
+                    "pspeed": sc.get("pspeed"),
+                    "days": sc.get("days"),
+                    "hour": sc.get("hour"),
+                    "minutes": sc.get("minutes"),
+                },
+                "device_ids": match.get("device_ids", []),
+            }
+        }
+
+        _LOGGER.info(
+            "toggle_schedule: %s schedule '%s' (id=%s)",
+            "Enabling" if enabled else "Disabling",
+            schedule_name,
+            schedule_id,
+        )
+        await airzone.api_patch_installation_schedule(installation, schedule_id, payload)
+
     hass.services.async_register(
         DOMAIN,
         "get_installation_schedules",
@@ -159,4 +220,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         async_patch_installation_schedules_activate,
         schema=PATCH_SCHEDULES_ACTIVATE_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        "toggle_schedule",
+        async_toggle_schedule,
+        schema=TOGGLE_SCHEDULE_SCHEMA,
     )

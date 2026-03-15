@@ -10,13 +10,16 @@ from homeassistant.exceptions import HomeAssistantError
 from custom_components.airzone_cloud.services import (
     ATTR_ACTIVE,
     ATTR_CONFIG_ENTRY,
+    ATTR_ENABLED,
     ATTR_SCHEDULE_DATA,
     ATTR_SCHEDULE_ID,
+    ATTR_SCHEDULE_NAME,
     DELETE_SCHEDULE_SCHEMA,
     GET_SCHEDULES_SCHEMA,
     PATCH_SCHEDULE_SCHEMA,
     PATCH_SCHEDULES_ACTIVATE_SCHEMA,
     POST_SCHEDULE_SCHEMA,
+    TOGGLE_SCHEDULE_SCHEMA,
     async_setup_services,
 )
 
@@ -145,6 +148,7 @@ class TestServiceRegistration:
         assert "post_installation_schedule" in registered_services
         assert "patch_installation_schedule" in registered_services
         assert "patch_installation_schedules_activate" in registered_services
+        assert "toggle_schedule" in registered_services
 
     @pytest.mark.asyncio
     async def test_delete_all_not_registered(self, mock_hass):
@@ -285,6 +289,112 @@ class TestServiceHandlers:
 
         with pytest.raises(HomeAssistantError, match="Installation not found"):
             await handler(call)
+
+    @pytest.mark.asyncio
+    async def test_toggle_schedule_disable(self, mock_hass, mock_airzone, mock_installation):
+        """Test toggle_schedule disables a schedule by name."""
+        mock_airzone.api_get_installation_schedules = AsyncMock(
+            return_value=[
+                {
+                    "_id": "sched-abc",
+                    "name": "Winter Day",
+                    "type": "week",
+                    "prog_enabled": True,
+                    "start_conf": {
+                        "mode": 3,
+                        "pspeed": "auto",
+                        "setpoint": {"celsius": 20, "fah": 68},
+                        "days": [1, 2, 3],
+                        "hour": 9,
+                        "minutes": 30,
+                    },
+                    "device_ids": ["dev-1"],
+                }
+            ]
+        )
+        await async_setup_services(mock_hass)
+        handler = self._get_handler(mock_hass, "toggle_schedule")
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {
+            ATTR_CONFIG_ENTRY: "test-entry-id",
+            ATTR_SCHEDULE_NAME: "Winter Day",
+            ATTR_ENABLED: False,
+        }
+
+        await handler(call)
+
+        mock_airzone.api_patch_installation_schedule.assert_called_once()
+        args = mock_airzone.api_patch_installation_schedule.call_args
+        assert args[0][1] == "sched-abc"
+        payload = args[0][2]["schedule"]
+        assert payload["prog_enabled"] is False
+        assert payload["setpoint"] == 20
+        assert "setpoint" not in payload.get("start_conf", {})
+
+    @pytest.mark.asyncio
+    async def test_toggle_schedule_not_found(self, mock_hass, mock_airzone, mock_installation):
+        """Test toggle_schedule raises error when schedule name not found."""
+        mock_airzone.api_get_installation_schedules = AsyncMock(return_value=[{"_id": "s1", "name": "Other"}])
+        await async_setup_services(mock_hass)
+        handler = self._get_handler(mock_hass, "toggle_schedule")
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {
+            ATTR_CONFIG_ENTRY: "test-entry-id",
+            ATTR_SCHEDULE_NAME: "Nonexistent",
+            ATTR_ENABLED: True,
+        }
+
+        with pytest.raises(HomeAssistantError, match="not found"):
+            await handler(call)
+
+    @pytest.mark.asyncio
+    async def test_toggle_schedule_case_insensitive(self, mock_hass, mock_airzone, mock_installation):
+        """Test toggle_schedule matches schedule name case-insensitively."""
+        mock_airzone.api_get_installation_schedules = AsyncMock(
+            return_value=[
+                {
+                    "_id": "s1",
+                    "name": "Winter Day",
+                    "type": "week",
+                    "prog_enabled": False,
+                    "start_conf": {"mode": 3, "days": [1]},
+                    "device_ids": [],
+                }
+            ]
+        )
+        await async_setup_services(mock_hass)
+        handler = self._get_handler(mock_hass, "toggle_schedule")
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {
+            ATTR_CONFIG_ENTRY: "test-entry-id",
+            ATTR_SCHEDULE_NAME: "winter day",
+            ATTR_ENABLED: True,
+        }
+
+        await handler(call)
+
+        mock_airzone.api_patch_installation_schedule.assert_called_once()
+        payload = mock_airzone.api_patch_installation_schedule.call_args[0][2]
+        assert payload["schedule"]["prog_enabled"] is True
+
+    def test_toggle_schedule_schema_valid(self):
+        """Test valid toggle schedule schema."""
+        data = {
+            ATTR_CONFIG_ENTRY: "entry-123",
+            ATTR_SCHEDULE_NAME: "Winter Day",
+            ATTR_ENABLED: False,
+        }
+        result = TOGGLE_SCHEDULE_SCHEMA(data)
+        assert result[ATTR_SCHEDULE_NAME] == "Winter Day"
+        assert result[ATTR_ENABLED] is False
+
+    def test_toggle_schedule_schema_missing_name(self):
+        """Test toggle schedule schema fails without schedule_name."""
+        with pytest.raises(vol.MultipleInvalid):
+            TOGGLE_SCHEDULE_SCHEMA({ATTR_ENABLED: True})
 
     @staticmethod
     def _get_handler(mock_hass, service_name):
