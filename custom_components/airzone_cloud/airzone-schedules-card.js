@@ -72,8 +72,21 @@ class AirzoneSchedulesCard extends HTMLElement {
     this._hass = hass;
     this._tryInit();
     if (this._initialized && this._activeTab === 'zones') {
-      this._renderZones();
+      // Only re-render if zone state actually changed
+      const zoneHash = this._getZoneHash();
+      if (zoneHash !== this._lastZoneHash) {
+        this._lastZoneHash = zoneHash;
+        this._renderZones();
+      }
     }
+  }
+
+  _getZoneHash() {
+    if (!this._hass) return '';
+    return Object.entries(this._hass.states)
+      .filter(([eid]) => eid.startsWith('climate.'))
+      .map(([eid, s]) => `${eid}:${s.state}:${s.attributes.current_temperature}:${s.attributes.temperature}:${s.attributes.hvac_action}:${s.attributes.current_humidity}:${s.attributes.fan_mode}`)
+      .join('|');
   }
 
   setConfig(config) {
