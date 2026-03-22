@@ -8,6 +8,7 @@ const MODES = {
   7: { label: 'Emergency Heat', icon: '<ha-icon icon="mdi:fire-alert"></ha-icon>', color: '#c0392b' },
 };
 const DEFAULT_MODE = { label: 'Unknown', icon: '<ha-icon icon="mdi:help-circle-outline"></ha-icon>', color: '#888' };
+const SCHEDULE_MODE_TO_HVAC = { 1: 'heat_cool', 2: 'cool', 3: 'heat', 4: 'fan_only', 5: 'dry', 7: 'heat' };
 
 const HVAC_MODE_MAP = {
   heat: { label: 'Heating', icon: 'mdi:fire', color: '#e74c3c' },
@@ -830,6 +831,65 @@ class AirzoneSchedulesCard extends HTMLElement {
     });
   }
 
+  // Returns a Date for when a schedule most recently would have fired, or null.
+  _getLastFired(schedule, now) {
+    const sc = schedule.start_conf || {};
+    const days = sc.days || [];
+    if (!days.length || sc.hour == null) return null;
+    const schedMin = sc.minutes || 0;
+    const today = now.getDay(); // 0=Sun matches schedule day indices
+    for (let offset = 0; offset < 7; offset++) {
+      const checkDay = (today - offset + 7) % 7;
+      if (!days.includes(checkDay)) continue;
+      if (offset === 0) {
+        if (now.getHours() * 60 + now.getMinutes() >= sc.hour * 60 + schedMin) {
+          return new Date(now.getFullYear(), now.getMonth(), now.getDate(), sc.hour, schedMin);
+        }
+      } else {
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset, sc.hour, schedMin);
+      }
+    }
+    return null;
+  }
+
+  // After a toggle, apply the mode & setpoint each zone should have based on active schedules.
+  async _applyActiveSchedules() {
+    await this._loadDevices();
+    if (!this._availableDevices?.length) return;
+    const now = new Date();
+    const enabled = this._schedules.filter(s => s.prog_enabled !== false);
+    if (!enabled.length) return;
+
+    const actions = new Map();
+    for (const dev of this._availableDevices) {
+      const matching = enabled.filter(s => (s.device_ids || []).includes(dev.id));
+      if (!matching.length) continue;
+      let best = null, bestTime = null;
+      for (const s of matching) {
+        const t = this._getLastFired(s, now);
+        if (t && (!bestTime || t > bestTime)) { bestTime = t; best = s; }
+      }
+      if (!best) continue;
+      const sc = best.start_conf || {};
+      actions.set(dev.entity_id, { mode: SCHEDULE_MODE_TO_HVAC[sc.mode], setpoint: this._getSetpointC(best) });
+    }
+    if (!actions.size) return;
+
+    const haFah = this._haUnitLabel() === '°F';
+    const promises = [];
+    for (const [eid, a] of actions) {
+      if (a.mode) {
+        promises.push(this._hass.callService('climate', 'set_hvac_mode', { entity_id: eid, hvac_mode: a.mode }));
+      }
+      if (a.setpoint != null) {
+        const temp = haFah ? cToF(a.setpoint) : a.setpoint;
+        promises.push(this._hass.callService('climate', 'set_temperature', { entity_id: eid, temperature: temp }));
+      }
+    }
+    await Promise.all(promises);
+    this._toast(`Applied schedule settings to ${actions.size} zone(s)`);
+  }
+
   async _toggleSchedule(schedule, active) {
     const schedId = schedule._id || schedule.id;
     if (!schedId) {
@@ -850,7 +910,8 @@ class AirzoneSchedulesCard extends HTMLElement {
 
       await this._hass.callService('airzone_cloud', 'patch_installation_schedule', svcData);
       this._toast(active ? 'Schedule enabled' : 'Schedule disabled');
-      this._loadSchedules();
+      await this._loadSchedules();
+      await this._applyActiveSchedules();
     } catch (err) {
       this._toast('Error: ' + (err.message || 'Check console'), true);
       this._loadSchedules();
