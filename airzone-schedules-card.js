@@ -111,11 +111,13 @@ class AirzoneSchedulesCard extends HTMLElement {
     this._tryInit();
   }
 
-  _tryInit() {
+  async _tryInit() {
     if (!this._initialized && this._hass && this.config) {
       this._initialized = true;
       this._render();
-      this._loadData();
+      await this._loadData();
+      // Re-render active tab now that devices are loaded
+      if (this._activeTab === 'zones') this._renderZones();
     }
   }
 
@@ -152,8 +154,8 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-unit-toggle { background:var(--az-surface); border:1px solid var(--az-border); border-radius:10px; padding:4px; display:inline-flex; gap:0; }
         .az-unit-btn { border:none; background:transparent; color:var(--az-text2); font-size:0.9em; font-weight:700; padding:6px 10px; border-radius:8px; cursor:pointer; transition:all 0.2s; }
         .az-unit-btn.active { background:var(--az-primary); color:var(--text-primary-color, #fff); }
-        .az-list { padding:0 32px 32px; display:grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap:20px; }
-        ha-card.is-panel .az-list { padding: 0; }
+        .az-list { padding:20px 32px 32px; display:grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap:20px; }
+        ha-card.is-panel .az-list { padding: 20px 0 0; }
         .az-empty { text-align:center; padding:64px 20px; color:var(--az-text2); grid-column: 1 / -1; font-size: 1.2em; }
         .az-empty-icon { margin-bottom:16px; color: var(--az-border); }
         .az-schedule-group { display:grid; grid-template-columns: 1fr; gap:16px; }
@@ -510,6 +512,12 @@ class AirzoneSchedulesCard extends HTMLElement {
   _renderZones() {
     const container = this.querySelector('#az-tab-zones');
     if (!container || !this._hass) return;
+
+    // Show spinner until devices are loaded
+    if (!this._availableDevices) {
+      container.innerHTML = '<div class="az-loading"><div class="az-spinner"></div><br/>Loading zones…</div>';
+      return;
+    }
 
     // Get climate entities for airzone_cloud
     const climateEntities = Object.entries(this._hass.states)
