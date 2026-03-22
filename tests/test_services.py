@@ -332,8 +332,8 @@ class TestServiceHandlers:
         assert args[0][1] == "sched-abc"
         payload = args[0][2]["schedule"]
         assert payload["prog_enabled"] is False
-        assert "setpoint" not in payload
-        assert "start_conf" not in payload
+        assert payload["setpoint"] == 20
+        assert "setpoint" not in payload.get("start_conf", {})
 
     @pytest.mark.asyncio
     async def test_toggle_schedule_not_found(self, mock_hass, mock_airzone, mock_installation):
