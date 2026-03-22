@@ -475,7 +475,7 @@ class AirzoneSchedulesCard extends HTMLElement {
       return el;
     };
 
-    const buildGroup = (schedules, label, open) => {
+    const buildGroup = (schedules, label, open, key) => {
       const details = document.createElement('details');
       if (open) details.setAttribute('open', '');
       details.style.cssText = 'margin-bottom:8px; grid-column: 1 / -1;';
@@ -488,19 +488,23 @@ class AirzoneSchedulesCard extends HTMLElement {
       for (const s of schedules) grid.appendChild(buildCard(s));
       details.appendChild(grid);
 
-      // Rotate chevron when open
+      // Rotate chevron when open and persist open/closed state
       const updateChevron = () => {
         const icon = summary.querySelector('.az-group-chevron');
         if (icon) icon.style.transform = details.open ? 'rotate(90deg)' : '';
       };
-      details.addEventListener('toggle', updateChevron);
+      details.addEventListener('toggle', () => {
+        this._groupOpen[key] = details.open;
+        updateChevron();
+      });
       updateChevron();
 
       return details;
     };
 
-    if (enabled.length) list.appendChild(buildGroup(enabled, 'Enabled', true));
-    if (disabled.length) list.appendChild(buildGroup(disabled, 'Disabled', false));
+    if (!this._groupOpen) this._groupOpen = { enabled: true, disabled: false };
+    if (enabled.length) list.appendChild(buildGroup(enabled, 'Enabled', this._groupOpen.enabled, 'enabled'));
+    if (disabled.length) list.appendChild(buildGroup(disabled, 'Disabled', this._groupOpen.disabled, 'disabled'));
   }
 
   _renderZones() {
