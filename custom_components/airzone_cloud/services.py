@@ -1,13 +1,25 @@
 import logging
+from datetime import datetime
 
 import voluptuous as vol
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "airzone_cloud"
+
+# Airzone schedule mode number → HA HVAC mode string
+SCHEDULE_MODE_TO_HVAC: dict[int, str] = {
+    1: "heat_cool",
+    2: "cool",
+    3: "heat",
+    4: "fan_only",
+    5: "dry",
+    7: "heat",
+}
 
 ATTR_CONFIG_ENTRY = "config_entry"
 ATTR_SCHEDULE_ID = "schedule_id"
@@ -244,6 +256,110 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
         if not_found:
             _LOGGER.warning("toggle_schedule: schedules not found: %s", ", ".join(not_found))
+
+        # Apply active schedule settings to zones
+        try:
+            await _apply_active_schedules(hass, airzone, installation, call.data.get(ATTR_CONFIG_ENTRY))
+        except Exception:
+            _LOGGER.exception("Failed to apply active schedule settings to zones")
+
+    async def _apply_active_schedules(hass: HomeAssistant, airzone, installation, config_entry_id: str | None) -> None:
+        """Set zone mode & setpoint based on the most recently fired enabled schedule."""
+        # Re-fetch schedules to get updated enabled states
+        all_schedules = await airzone.api_get_installation_schedules(installation)
+        if not isinstance(all_schedules, list):
+            return
+        enabled_schedules = [s for s in all_schedules if s.get("prog_enabled") is not False]
+        if not enabled_schedules:
+            return
+
+        # Build device_id → entity_id map from the entity registry
+        registry = er.async_get(hass)
+        device_map: dict[str, str] = {}
+        for entry in registry.entities.values():
+            if entry.platform == DOMAIN and entry.entity_id.startswith("climate."):
+                device_map[entry.unique_id] = entry.entity_id
+
+        if not device_map:
+            return
+
+        now = datetime.now()
+        # JS getDay(): 0=Sun..6=Sat — schedule days use the same convention
+        today = (now.weekday() + 1) % 7  # Python weekday(): 0=Mon → convert to 0=Sun
+
+        def _get_last_fired(schedule):
+            sc = schedule.get("start_conf") or {}
+            days = sc.get("days") or []
+            hour = sc.get("hour")
+            if not days or hour is None:
+                return None
+            minutes = sc.get("minutes") or 0
+            now_mins = now.hour * 60 + now.minute
+            sched_mins = hour * 60 + minutes
+            for offset in range(7):
+                check_day = (today - offset) % 7
+                if check_day not in days:
+                    continue
+                if offset == 0 and now_mins >= sched_mins:
+                    return now.replace(hour=hour, minute=minutes, second=0, microsecond=0)
+                elif offset > 0:
+                    from datetime import timedelta
+
+                    d = now - timedelta(days=offset)
+                    return d.replace(hour=hour, minute=minutes, second=0, microsecond=0)
+            return None
+
+        # For each device, find the most recently fired enabled schedule
+        actions: dict[str, dict] = {}
+        for device_id, entity_id in device_map.items():
+            matching = [s for s in enabled_schedules if device_id in (s.get("device_ids") or [])]
+            if not matching:
+                continue
+            best = None
+            best_time = None
+            for s in matching:
+                t = _get_last_fired(s)
+                if t and (best_time is None or t > best_time):
+                    best_time = t
+                    best = s
+            if not best:
+                continue
+            sc = best.get("start_conf") or {}
+            actions[entity_id] = {
+                "mode": SCHEDULE_MODE_TO_HVAC.get(sc.get("mode")),
+                "setpoint": best.get("setpoint"),
+            }
+
+        if not actions:
+            return
+
+        for entity_id, action in actions.items():
+            if action["mode"]:
+                try:
+                    await hass.services.async_call(
+                        "climate",
+                        "set_hvac_mode",
+                        {"entity_id": entity_id, "hvac_mode": action["mode"]},
+                        blocking=True,
+                    )
+                except Exception:
+                    _LOGGER.exception("Failed to set HVAC mode for %s", entity_id)
+            if action["setpoint"] is not None:
+                try:
+                    await hass.services.async_call(
+                        "climate",
+                        "set_temperature",
+                        {"entity_id": entity_id, "temperature": action["setpoint"]},
+                        blocking=True,
+                    )
+                except Exception:
+                    _LOGGER.exception("Failed to set temperature for %s", entity_id)
+
+        _LOGGER.info(
+            "Applied active schedule settings to %d zone(s): %s",
+            len(actions),
+            ", ".join(actions.keys()),
+        )
 
     hass.services.async_register(
         DOMAIN,

@@ -890,8 +890,12 @@ class AirzoneSchedulesCard extends HTMLElement {
         promises.push(this._hass.callService('climate', 'set_temperature', { entity_id: eid, temperature: temp }));
       }
     }
-    await Promise.all(promises);
-    this._toast(`Applied schedule settings to ${actions.size} zone(s)`);
+    try {
+      await Promise.all(promises);
+      this._toast(`Applied schedule settings to ${actions.size} zone(s)`);
+    } catch (err) {
+      this._toast('Error applying schedule settings: ' + (err.message || 'Check console'), true);
+    }
   }
 
   async _toggleSchedule(schedule, active) {
