@@ -211,22 +211,10 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
         for match in matched:
             schedule_id = match["_id"]
-            sc = match.get("start_conf", {})
 
             payload = {
                 "schedule": {
-                    "name": match.get("name"),
-                    "type": match.get("type", "week"),
                     "prog_enabled": enabled,
-                    "setpoint": match.get("setpoint"),
-                    "start_conf": {
-                        "mode": sc.get("mode"),
-                        "pspeed": sc.get("pspeed"),
-                        "days": sc.get("days"),
-                        "hour": sc.get("hour"),
-                        "minutes": sc.get("minutes"),
-                    },
-                    "device_ids": match.get("device_ids", []),
                 }
             }
 

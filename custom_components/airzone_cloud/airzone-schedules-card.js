@@ -838,20 +838,8 @@ class AirzoneSchedulesCard extends HTMLElement {
     }
 
     try {
-      const sc = schedule.start_conf || {};
       const payload = {
-        name: schedule.name,
-        type: schedule.type || 'week',
         prog_enabled: !!active,
-        setpoint: this._getSetpointC(schedule) ?? undefined,
-        start_conf: {
-          mode: sc.mode,
-          pspeed: sc.pspeed,
-          days: sc.days,
-          hour: sc.hour,
-          minutes: sc.minutes,
-        },
-        device_ids: schedule.device_ids || [],
       };
 
       const svcData = {
