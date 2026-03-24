@@ -23,13 +23,6 @@ def _get_setpoint_celsius(schedule: dict) -> float | None:
     return None
 
 
-def _make_setpoint_obj(celsius: float | None) -> dict | None:
-    """Build the {celsius, fah} setpoint object the Airzone API expects in start_conf."""
-    if celsius is None:
-        return None
-    return {"celsius": celsius, "fah": round(celsius * 9 / 5 + 32)}
-
-
 # Airzone schedule mode number → HA HVAC mode string
 SCHEDULE_MODE_TO_HVAC: dict[int, str] = {
     1: "heat_cool",
@@ -244,7 +237,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             schedule_id = match["_id"]
             sc = match.get("start_conf", {})
             sp_celsius = _get_setpoint_celsius(match)
-            sp_obj = _make_setpoint_obj(sp_celsius)
 
             payload = {
                 "schedule": {
@@ -260,7 +252,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                             "days": sc.get("days"),
                             "hour": sc.get("hour"),
                             "minutes": sc.get("minutes"),
-                            "setpoint": sp_obj,
+                            "setpoint": sp_celsius,
                         }.items()
                         if v is not None
                     },
