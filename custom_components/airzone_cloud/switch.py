@@ -176,7 +176,15 @@ class AirzoneScheduleSwitch(SwitchEntity):
                 "prog_enabled": enabled,
                 "setpoint": self._schedule_data.get("setpoint"),
                 "start_conf": {
-                    k: v for k, v in sc.items() if v is not None
+                    k: v
+                    for k, v in {
+                        "mode": sc.get("mode"),
+                        "pspeed": sc.get("pspeed"),
+                        "days": sc.get("days"),
+                        "hour": sc.get("hour"),
+                        "minutes": sc.get("minutes"),
+                    }.items()
+                    if v is not None
                 },
                 "device_ids": self._schedule_data.get("device_ids", []),
             }

@@ -637,8 +637,7 @@ class AirzoneSchedulesCard extends HTMLElement {
     const minutes = useDefaults ? 0 : (sc.minutes != null ? sc.minutes : 0);
     const mode = useDefaults ? 3 : (sc.mode || 3);
     const spC = this._getSetpointC(schedule);
-    const tempC = spC; // null when no setpoint stored; user must explicitly set one
-    const temp = tempC != null ? this._toDisplay(tempC) : null;
+    const temp = spC != null ? this._toDisplay(spC) : null;
     const days = useDefaults ? [1,2,3,4,5] : (sc.days || []);
     const pspeed = useDefaults ? 'auto' : (sc.pspeed || 'auto');
     const deviceIds = useDefaults ? [] : (schedule.device_ids || []);
@@ -650,6 +649,8 @@ class AirzoneSchedulesCard extends HTMLElement {
     let selectedMode = mode;
     let selectedDays = [...days];
     let tempVal = temp;
+    let tempCelsius = spC; // raw Celsius value for the API; avoids lossy display round-trip
+    let tempTouched = false; // true once user changes temp via +/- buttons
 
     const overlay = document.createElement('dialog');
     overlay.className = 'az-editor-overlay';
@@ -766,8 +767,8 @@ class AirzoneSchedulesCard extends HTMLElement {
     const step = this._useFah ? 1 : 0.5;
     const minT = this._toDisplay(15);
     const maxT = this._toDisplay(30);
-    overlay.querySelector('#ed-temp-down').addEventListener('click', () => { if (tempVal == null) tempVal = this._useFah ? 70 : 21; tempVal = Math.max(minT, tempVal - step); tempDisplay.textContent = tempVal; });
-    overlay.querySelector('#ed-temp-up').addEventListener('click', () => { if (tempVal == null) tempVal = this._useFah ? 70 : 21; tempVal = Math.min(maxT, tempVal + step); tempDisplay.textContent = tempVal; });
+    overlay.querySelector('#ed-temp-down').addEventListener('click', () => { if (tempVal == null) tempVal = this._useFah ? 70 : 21; tempVal = Math.max(minT, tempVal - step); tempDisplay.textContent = tempVal; tempTouched = true; });
+    overlay.querySelector('#ed-temp-up').addEventListener('click', () => { if (tempVal == null) tempVal = this._useFah ? 70 : 21; tempVal = Math.min(maxT, tempVal + step); tempDisplay.textContent = tempVal; tempTouched = true; });
     // Close
     const closeOverlay = () => { overlay.close(); overlay.remove(); };
     overlay.querySelectorAll('.az-close').forEach(btn => btn.addEventListener('click', closeOverlay));
@@ -786,9 +787,8 @@ class AirzoneSchedulesCard extends HTMLElement {
         name: edName,
         type: 'week',
         prog_enabled: edProgEnabled,
-        setpoint: tempVal != null ? this._toCelsius(tempVal) : (schedule ? schedule.setpoint : null),
+        setpoint: tempTouched ? (tempVal != null ? this._toCelsius(tempVal) : null) : (schedule ? schedule.setpoint : null),
         start_conf: {
-          ...(schedule ? (schedule.start_conf || {}) : {}),
           mode: selectedMode,
           pspeed: edSpeed === 'auto' ? 'auto' : parseInt(edSpeed),
           days: selectedDays.sort(),
@@ -922,7 +922,6 @@ class AirzoneSchedulesCard extends HTMLElement {
         prog_enabled: !!active,
         setpoint: this._getSetpointC(schedule),
         start_conf: {
-          ...sc,
           mode: sc.mode,
           pspeed: sc.pspeed,
           days: sc.days,

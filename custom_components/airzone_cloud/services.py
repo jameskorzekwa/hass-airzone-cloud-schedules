@@ -147,44 +147,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Update an existing schedule."""
         schedule_id = call.data[ATTR_SCHEDULE_ID]
         schedule_data = call.data[ATTR_SCHEDULE_DATA]
-        airzone, installation = _get_api_and_installation(hass, call.data.get(ATTR_CONFIG_ENTRY))
-
-        # Fetch the current schedule from the API so we never lose fields
-        current = None
-        try:
-            all_schedules = await airzone.api_get_installation_schedules(installation)
-            if isinstance(all_schedules, list):
-                for s in all_schedules:
-                    if s.get("_id") == schedule_id:
-                        current = s
-                        break
-        except Exception:
-            _LOGGER.debug("Could not fetch current schedule %s for merge", schedule_id)
-
-        if current:
-            # Merge: start with current API data, overlay incoming changes
-            current_sc = current.get("start_conf") or {}
-            incoming_sc = schedule_data.get("start_conf") or {}
-            merged_sc = {**current_sc, **incoming_sc}
-            # Strip None values from start_conf
-            merged_sc = {k: v for k, v in merged_sc.items() if v is not None}
-
-            merged = {
-                "name": schedule_data.get("name", current.get("name")),
-                "type": schedule_data.get("type", current.get("type", "week")),
-                "prog_enabled": schedule_data.get("prog_enabled", current.get("prog_enabled")),
-                "setpoint": schedule_data.get("setpoint", current.get("setpoint")),
-                "start_conf": merged_sc,
-                "device_ids": schedule_data.get("device_ids", current.get("device_ids", [])),
-            }
-        else:
-            # Fallback: use incoming data as-is
-            merged = dict(schedule_data)
-            if "start_conf" in merged and isinstance(merged["start_conf"], dict):
-                merged["start_conf"] = {k: v for k, v in merged["start_conf"].items() if v is not None}
-
-        wrapped = {"schedule": merged}
+        # Strip any keys with None/undefined values to avoid sending nulls to the API
+        if "start_conf" in schedule_data and isinstance(schedule_data["start_conf"], dict):
+            schedule_data["start_conf"] = {k: v for k, v in schedule_data["start_conf"].items() if v is not None}
+        # The Airzone Cloud API expects PATCH payloads wrapped in a "schedule" key
+        wrapped = {"schedule": schedule_data}
         _LOGGER.warning("patch_installation_schedule: id=%s data=%s", schedule_id, wrapped)
+        airzone, installation = _get_api_and_installation(hass, call.data.get(ATTR_CONFIG_ENTRY))
         res = await airzone.api_patch_installation_schedule(installation, schedule_id, wrapped)
         return {"response": res}
 
@@ -262,7 +231,17 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     "type": match.get("type", "week"),
                     "prog_enabled": enabled,
                     "setpoint": match.get("setpoint"),
-                    "start_conf": {k: v for k, v in sc.items() if v is not None},
+                    "start_conf": {
+                        k: v
+                        for k, v in {
+                            "mode": sc.get("mode"),
+                            "pspeed": sc.get("pspeed"),
+                            "days": sc.get("days"),
+                            "hour": sc.get("hour"),
+                            "minutes": sc.get("minutes"),
+                        }.items()
+                        if v is not None
+                    },
                     "device_ids": match.get("device_ids", []),
                 }
             }
