@@ -786,8 +786,9 @@ class AirzoneSchedulesCard extends HTMLElement {
         name: edName,
         type: 'week',
         prog_enabled: edProgEnabled,
-        setpoint: tempVal != null ? this._toCelsius(tempVal) : (isNew ? null : undefined),
+        setpoint: tempVal != null ? this._toCelsius(tempVal) : (schedule ? schedule.setpoint : null),
         start_conf: {
+          ...(schedule ? (schedule.start_conf || {}) : {}),
           mode: selectedMode,
           pspeed: edSpeed === 'auto' ? 'auto' : parseInt(edSpeed),
           days: selectedDays.sort(),
@@ -921,6 +922,7 @@ class AirzoneSchedulesCard extends HTMLElement {
         prog_enabled: !!active,
         setpoint: this._getSetpointC(schedule),
         start_conf: {
+          ...sc,
           mode: sc.mode,
           pspeed: sc.pspeed,
           days: sc.days,
