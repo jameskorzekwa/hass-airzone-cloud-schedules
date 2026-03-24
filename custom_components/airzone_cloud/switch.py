@@ -167,14 +167,18 @@ class AirzoneScheduleSwitch(SwitchEntity):
 
     async def _async_set_enabled(self, enabled: bool) -> None:
         """Enable or disable the schedule via the API."""
+        from .services import _get_setpoint_celsius, _make_setpoint_obj
+
         sc = self._schedule_data.get("start_conf", {})
+        sp_celsius = _get_setpoint_celsius(self._schedule_data)
+        sp_obj = _make_setpoint_obj(sp_celsius)
 
         payload = {
             "schedule": {
                 "name": self._schedule_data.get("name"),
                 "type": self._schedule_data.get("type", "week"),
                 "prog_enabled": enabled,
-                "setpoint": self._schedule_data.get("setpoint"),
+                "setpoint": sp_celsius,
                 "start_conf": {
                     k: v
                     for k, v in {
@@ -183,6 +187,7 @@ class AirzoneScheduleSwitch(SwitchEntity):
                         "days": sc.get("days"),
                         "hour": sc.get("hour"),
                         "minutes": sc.get("minutes"),
+                        "setpoint": sp_obj,
                     }.items()
                     if v is not None
                 },

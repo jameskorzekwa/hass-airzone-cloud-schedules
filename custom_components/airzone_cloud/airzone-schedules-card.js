@@ -783,17 +783,21 @@ class AirzoneSchedulesCard extends HTMLElement {
       const devIds = Array.from(overlay.querySelectorAll('.ed-device-checkbox:checked')).map(cb => cb.value);
       const edProgEnabled = overlay.querySelector('#ed-enabled').checked;
 
+      const spCelsius = tempTouched ? (tempVal != null ? this._toCelsius(tempVal) : null) : tempCelsius;
+      const spObj = spCelsius != null ? { celsius: spCelsius, fah: cToF(spCelsius) } : null;
+
       const payload = {
         name: edName,
         type: 'week',
         prog_enabled: edProgEnabled,
-        setpoint: tempTouched ? (tempVal != null ? this._toCelsius(tempVal) : null) : (schedule ? schedule.setpoint : null),
+        setpoint: spCelsius,
         start_conf: {
           mode: selectedMode,
           pspeed: edSpeed === 'auto' ? 'auto' : parseInt(edSpeed),
           days: selectedDays.sort(),
           hour: edHour,
           minutes: edMin,
+          setpoint: spObj,
         },
         device_ids: devIds,
       };
@@ -916,17 +920,20 @@ class AirzoneSchedulesCard extends HTMLElement {
 
     try {
       const sc = schedule.start_conf || {};
+      const spC = this._getSetpointC(schedule);
+      const spObj = spC != null ? { celsius: spC, fah: cToF(spC) } : null;
       const payload = {
         name: schedule.name,
         type: schedule.type || 'week',
         prog_enabled: !!active,
-        setpoint: this._getSetpointC(schedule),
+        setpoint: spC,
         start_conf: {
           mode: sc.mode,
           pspeed: sc.pspeed,
           days: sc.days,
           hour: sc.hour,
           minutes: sc.minutes,
+          setpoint: spObj,
         },
         device_ids: schedule.device_ids || [],
       };

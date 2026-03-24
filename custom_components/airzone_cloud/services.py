@@ -11,6 +11,25 @@ _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "airzone_cloud"
 
+
+def _get_setpoint_celsius(schedule: dict) -> float | None:
+    """Extract setpoint in Celsius from a schedule, checking top-level and start_conf."""
+    top = schedule.get("setpoint")
+    if top is not None:
+        return top["celsius"] if isinstance(top, dict) else top
+    conf = (schedule.get("start_conf") or {}).get("setpoint")
+    if conf is not None:
+        return conf["celsius"] if isinstance(conf, dict) else conf
+    return None
+
+
+def _make_setpoint_obj(celsius: float | None) -> dict | None:
+    """Build the {celsius, fah} setpoint object the Airzone API expects in start_conf."""
+    if celsius is None:
+        return None
+    return {"celsius": celsius, "fah": round(celsius * 9 / 5 + 32)}
+
+
 # Airzone schedule mode number → HA HVAC mode string
 SCHEDULE_MODE_TO_HVAC: dict[int, str] = {
     1: "heat_cool",
@@ -224,13 +243,15 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         for match in matched:
             schedule_id = match["_id"]
             sc = match.get("start_conf", {})
+            sp_celsius = _get_setpoint_celsius(match)
+            sp_obj = _make_setpoint_obj(sp_celsius)
 
             payload = {
                 "schedule": {
                     "name": match.get("name"),
                     "type": match.get("type", "week"),
                     "prog_enabled": enabled,
-                    "setpoint": match.get("setpoint"),
+                    "setpoint": sp_celsius,
                     "start_conf": {
                         k: v
                         for k, v in {
@@ -239,6 +260,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                             "days": sc.get("days"),
                             "hour": sc.get("hour"),
                             "minutes": sc.get("minutes"),
+                            "setpoint": sp_obj,
                         }.items()
                         if v is not None
                     },
