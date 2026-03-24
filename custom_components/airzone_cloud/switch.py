@@ -155,12 +155,11 @@ class AirzoneScheduleSwitch(SwitchEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes."""
         sc = self._schedule_data.get("start_conf", {})
-        setpoint = sc.get("setpoint", {})
         return {
             "schedule_id": self._schedule_id,
             "schedule_name": self._schedule_data.get("name"),
             "mode": sc.get("mode"),
-            "setpoint_celsius": setpoint.get("celsius") if isinstance(setpoint, dict) else setpoint,
+            "setpoint_celsius": self._schedule_data.get("setpoint"),
             "days": sc.get("days"),
             "hour": sc.get("hour"),
             "minutes": sc.get("minutes"),
@@ -169,20 +168,23 @@ class AirzoneScheduleSwitch(SwitchEntity):
     async def _async_set_enabled(self, enabled: bool) -> None:
         """Enable or disable the schedule via the API."""
         sc = self._schedule_data.get("start_conf", {})
-        setpoint = sc.get("setpoint", {})
 
         payload = {
             "schedule": {
                 "name": self._schedule_data.get("name"),
                 "type": self._schedule_data.get("type", "week"),
                 "prog_enabled": enabled,
-                "setpoint": setpoint.get("celsius") if isinstance(setpoint, dict) else setpoint,
+                "setpoint": self._schedule_data.get("setpoint"),
                 "start_conf": {
-                    "mode": sc.get("mode"),
-                    "pspeed": sc.get("pspeed"),
-                    "days": sc.get("days"),
-                    "hour": sc.get("hour"),
-                    "minutes": sc.get("minutes"),
+                    k: v
+                    for k, v in {
+                        "mode": sc.get("mode"),
+                        "pspeed": sc.get("pspeed"),
+                        "days": sc.get("days"),
+                        "hour": sc.get("hour"),
+                        "minutes": sc.get("minutes"),
+                    }.items()
+                    if v is not None
                 },
                 "device_ids": self._schedule_data.get("device_ids", []),
             }
