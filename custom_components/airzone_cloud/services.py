@@ -333,6 +333,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     return d.replace(hour=hour, minute=minutes, second=0, microsecond=0)
             return None
 
+        # Determine if HA uses Fahrenheit
+        ha_fahrenheit = hass.config.units.temperature_unit == "°F"
+
         # For each device, find the most recently fired enabled schedule
         actions: dict[str, dict] = {}
         for device_id, entity_id in device_map.items():
@@ -349,15 +352,31 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             if not best:
                 continue
             sc = best.get("start_conf") or {}
+            sp_celsius = _get_setpoint_celsius(best)
             actions[entity_id] = {
                 "mode": SCHEDULE_MODE_TO_HVAC.get(sc.get("mode")),
-                "setpoint": _get_setpoint_celsius(best),
+                "setpoint_celsius": sp_celsius,
+                "schedule_name": best.get("name"),
             }
 
         if not actions:
             return
 
         for entity_id, action in actions.items():
+            sp_celsius = action["setpoint_celsius"]
+            # Convert to HA's unit system for the set_temperature call
+            temp = (round(sp_celsius * 9 / 5 + 32) if ha_fahrenheit else sp_celsius) if sp_celsius is not None else None
+
+            _LOGGER.info(
+                "apply_active_schedules: %s → schedule '%s', mode=%s, setpoint=%s°C (%s %s)",
+                entity_id,
+                action["schedule_name"],
+                action["mode"],
+                sp_celsius,
+                temp,
+                "°F" if ha_fahrenheit else "°C",
+            )
+
             if action["mode"]:
                 try:
                     await hass.services.async_call(
@@ -368,12 +387,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     )
                 except Exception:
                     _LOGGER.exception("Failed to set HVAC mode for %s", entity_id)
-            if action["setpoint"] is not None:
+            if temp is not None:
                 try:
                     await hass.services.async_call(
                         "climate",
                         "set_temperature",
-                        {"entity_id": entity_id, "temperature": action["setpoint"]},
+                        {"entity_id": entity_id, "temperature": temp},
                         blocking=True,
                     )
                 except Exception:
