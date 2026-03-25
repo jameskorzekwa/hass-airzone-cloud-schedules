@@ -186,7 +186,6 @@ class AirzoneScheduleSwitch(SwitchEntity):
                         "days": sc.get("days"),
                         "hour": sc.get("hour"),
                         "minutes": sc.get("minutes"),
-                        "setpoint": sp_celsius,
                     }.items()
                     if v is not None
                 },

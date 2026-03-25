@@ -333,8 +333,8 @@ class TestServiceHandlers:
         payload = args[0][2]["schedule"]
         assert payload["prog_enabled"] is False
         assert payload["setpoint"] == 20
-        # setpoint must also be in start_conf for the Airzone Cloud app
-        assert payload.get("start_conf", {}).get("setpoint") == 20
+        # setpoint must NOT be in start_conf (API rejects it there)
+        assert "setpoint" not in payload.get("start_conf", {})
 
     @pytest.mark.asyncio
     async def test_toggle_schedule_not_found(self, mock_hass, mock_airzone, mock_installation):

@@ -252,7 +252,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                             "days": sc.get("days"),
                             "hour": sc.get("hour"),
                             "minutes": sc.get("minutes"),
-                            "setpoint": sp_celsius,
                         }.items()
                         if v is not None
                     },

@@ -796,7 +796,6 @@ class AirzoneSchedulesCard extends HTMLElement {
           days: selectedDays.sort(),
           hour: edHour,
           minutes: edMin,
-          setpoint: spCelsius,
         },
         device_ids: devIds,
       };
@@ -931,7 +930,6 @@ class AirzoneSchedulesCard extends HTMLElement {
           days: sc.days,
           hour: sc.hour,
           minutes: sc.minutes,
-          setpoint: spC,
         },
         device_ids: schedule.device_ids || [],
       };
