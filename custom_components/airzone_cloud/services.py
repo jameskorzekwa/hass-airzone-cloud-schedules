@@ -308,8 +308,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             return
 
         now = datetime.now()
-        # JS getDay(): 0=Sun..6=Sat — schedule days use the same convention
-        today = (now.weekday() + 1) % 7  # Python weekday(): 0=Mon → convert to 0=Sun
+        # API schedule days: 0=Mon..6=Sun — same as Python weekday()
+        today = now.weekday()
 
         def _get_last_fired(schedule):
             sc = schedule.get("start_conf") or {}
@@ -351,7 +351,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             sc = best.get("start_conf") or {}
             actions[entity_id] = {
                 "mode": SCHEDULE_MODE_TO_HVAC.get(sc.get("mode")),
-                "setpoint": best.get("setpoint"),
+                "setpoint": _get_setpoint_celsius(best),
             }
 
         if not actions:

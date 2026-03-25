@@ -855,7 +855,7 @@ class AirzoneSchedulesCard extends HTMLElement {
     const days = sc.days || [];
     if (!days.length || sc.hour == null) return null;
     const schedMin = sc.minutes || 0;
-    const today = now.getDay(); // 0=Sun matches schedule day indices
+    const today = (now.getDay() + 6) % 7; // JS getDay: 0=Sun → API days: 0=Mon
     for (let offset = 0; offset < 7; offset++) {
       const checkDay = (today - offset + 7) % 7;
       if (!days.includes(checkDay)) continue;
