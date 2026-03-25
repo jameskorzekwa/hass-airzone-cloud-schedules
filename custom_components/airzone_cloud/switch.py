@@ -172,26 +172,29 @@ class AirzoneScheduleSwitch(SwitchEntity):
         sc = self._schedule_data.get("start_conf", {})
         sp_celsius = _get_setpoint_celsius(self._schedule_data)
 
-        payload = {
-            "schedule": {
-                "name": self._schedule_data.get("name"),
-                "type": self._schedule_data.get("type", "week"),
-                "prog_enabled": enabled,
+        start_conf = {
+            k: v
+            for k, v in {
+                "mode": sc.get("mode"),
+                "pspeed": sc.get("pspeed"),
+                "days": sc.get("days"),
+                "hour": sc.get("hour"),
+                "minutes": sc.get("minutes"),
                 "setpoint": sp_celsius,
-                "start_conf": {
-                    k: v
-                    for k, v in {
-                        "mode": sc.get("mode"),
-                        "pspeed": sc.get("pspeed"),
-                        "days": sc.get("days"),
-                        "hour": sc.get("hour"),
-                        "minutes": sc.get("minutes"),
-                    }.items()
-                    if v is not None
-                },
-                "device_ids": self._schedule_data.get("device_ids", []),
-            }
+            }.items()
+            if v is not None
         }
+
+        schedule_body = {
+            "name": self._schedule_data.get("name"),
+            "type": self._schedule_data.get("type", "week"),
+            "prog_enabled": enabled,
+            "start_conf": start_conf,
+            "device_ids": self._schedule_data.get("device_ids", []),
+        }
+        payload = {"schedule": schedule_body}
+        if sp_celsius is not None:
+            payload["opts"] = {"units": 0}
 
         await self._airzone.api_patch_installation_schedule(self._installation, self._schedule_id, payload)
         self._attr_is_on = enabled

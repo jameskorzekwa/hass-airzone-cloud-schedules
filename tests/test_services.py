@@ -330,11 +330,14 @@ class TestServiceHandlers:
         mock_airzone.api_patch_installation_schedule.assert_called_once()
         args = mock_airzone.api_patch_installation_schedule.call_args
         assert args[0][1] == "sched-abc"
-        payload = args[0][2]["schedule"]
+        wrapped = args[0][2]
+        payload = wrapped["schedule"]
         assert payload["prog_enabled"] is False
-        assert payload["setpoint"] == 20
-        # setpoint must NOT be in start_conf (API rejects it there)
-        assert "setpoint" not in payload.get("start_conf", {})
+        # setpoint goes inside start_conf per the API schema
+        assert payload["start_conf"]["setpoint"] == 20
+        assert "setpoint" not in payload  # NOT at top level
+        # opts.units must be set when setpoint is present (0 = celsius)
+        assert wrapped.get("opts") == {"units": 0}
 
     @pytest.mark.asyncio
     async def test_toggle_schedule_not_found(self, mock_hass, mock_airzone, mock_installation):

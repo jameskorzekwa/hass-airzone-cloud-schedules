@@ -785,20 +785,23 @@ class AirzoneSchedulesCard extends HTMLElement {
 
       const spCelsius = tempTouched ? (tempVal != null ? this._toCelsius(tempVal) : null) : tempCelsius;
 
-      const payload = {
-        name: edName,
-        type: 'week',
-        prog_enabled: edProgEnabled,
-        setpoint: spCelsius,
-        start_conf: {
+      const scObj = {
           mode: selectedMode,
           pspeed: edSpeed === 'auto' ? 'auto' : parseInt(edSpeed),
           days: selectedDays.sort(),
           hour: edHour,
           minutes: edMin,
-        },
+      };
+      if (spCelsius != null) scObj.setpoint = spCelsius;
+
+      const payload = {
+        name: edName,
+        type: 'week',
+        prog_enabled: edProgEnabled,
+        start_conf: scObj,
         device_ids: devIds,
       };
+      if (spCelsius != null) payload.opts = { units: 0 };
 
       const seasonVal = overlay.querySelector('#ed-season').value || null;
       const awayVal = overlay.querySelector('#ed-away').checked;
@@ -919,20 +922,22 @@ class AirzoneSchedulesCard extends HTMLElement {
     try {
       const sc = schedule.start_conf || {};
       const spC = this._getSetpointC(schedule);
-      const payload = {
-        name: schedule.name,
-        type: schedule.type || 'week',
-        prog_enabled: !!active,
-        setpoint: spC,
-        start_conf: {
+      const scObj = {
           mode: sc.mode,
           pspeed: sc.pspeed,
           days: sc.days,
           hour: sc.hour,
           minutes: sc.minutes,
-        },
+      };
+      if (spC != null) scObj.setpoint = spC;
+      const payload = {
+        name: schedule.name,
+        type: schedule.type || 'week',
+        prog_enabled: !!active,
+        start_conf: scObj,
         device_ids: schedule.device_ids || [],
       };
+      if (spC != null) payload.opts = { units: 0 };
 
       const svcData = {
         schedule_id: schedId,

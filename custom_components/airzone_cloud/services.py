@@ -150,8 +150,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Create a new schedule."""
         _LOGGER.debug("post_installation_schedule called")
         airzone, installation = _get_api_and_installation(hass, call.data.get(ATTR_CONFIG_ENTRY))
-        # The Airzone Cloud API expects POST payloads wrapped in a "schedule" key
-        wrapped = {"schedule": call.data[ATTR_SCHEDULE_DATA]}
+        schedule_data = dict(call.data[ATTR_SCHEDULE_DATA])
+        # Extract opts (units) if present — must be at the top level alongside "schedule"
+        opts = schedule_data.pop("opts", None)
+        wrapped = {"schedule": schedule_data}
+        if opts:
+            wrapped["opts"] = opts
         res = await airzone.api_post_installation_schedule(installation, wrapped)
         return {"response": res}
 
@@ -162,8 +166,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         # Strip any keys with None/undefined values to avoid sending nulls to the API
         if "start_conf" in schedule_data and isinstance(schedule_data["start_conf"], dict):
             schedule_data["start_conf"] = {k: v for k, v in schedule_data["start_conf"].items() if v is not None}
+        # Extract opts (units) if present — must be at the top level alongside "schedule"
+        opts = schedule_data.pop("opts", None)
         # The Airzone Cloud API expects PATCH payloads wrapped in a "schedule" key
         wrapped = {"schedule": schedule_data}
+        if opts:
+            wrapped["opts"] = opts
         _LOGGER.warning("patch_installation_schedule: id=%s data=%s", schedule_id, wrapped)
         airzone, installation = _get_api_and_installation(hass, call.data.get(ATTR_CONFIG_ENTRY))
         res = await airzone.api_patch_installation_schedule(installation, schedule_id, wrapped)
@@ -238,26 +246,29 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             sc = match.get("start_conf", {})
             sp_celsius = _get_setpoint_celsius(match)
 
-            payload = {
-                "schedule": {
-                    "name": match.get("name"),
-                    "type": match.get("type", "week"),
-                    "prog_enabled": enabled,
+            start_conf = {
+                k: v
+                for k, v in {
+                    "mode": sc.get("mode"),
+                    "pspeed": sc.get("pspeed"),
+                    "days": sc.get("days"),
+                    "hour": sc.get("hour"),
+                    "minutes": sc.get("minutes"),
                     "setpoint": sp_celsius,
-                    "start_conf": {
-                        k: v
-                        for k, v in {
-                            "mode": sc.get("mode"),
-                            "pspeed": sc.get("pspeed"),
-                            "days": sc.get("days"),
-                            "hour": sc.get("hour"),
-                            "minutes": sc.get("minutes"),
-                        }.items()
-                        if v is not None
-                    },
-                    "device_ids": match.get("device_ids", []),
-                }
+                }.items()
+                if v is not None
             }
+
+            schedule_body = {
+                "name": match.get("name"),
+                "type": match.get("type", "week"),
+                "prog_enabled": enabled,
+                "start_conf": start_conf,
+                "device_ids": match.get("device_ids", []),
+            }
+            payload = {"schedule": schedule_body}
+            if sp_celsius is not None:
+                payload["opts"] = {"units": 0}
 
             _LOGGER.info(
                 "toggle_schedule: %s schedule '%s' (id=%s)",
