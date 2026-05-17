@@ -564,12 +564,20 @@ class AirzoneSchedulesCard extends HTMLElement {
             <div class="az-zone-current-label">Power</div>
           </div>
           ` : isDual ? `
-          <div class="az-zone-cell">
-            <div class="az-zone-sp-val" style="color:#e74c3c;"><ha-icon icon="mdi:fire" style="--mdc-icon-size:18px;"></ha-icon>${tLow}<span class="az-zone-sp-unit">${uLabel}</span></div>
+          <div class="az-zone-cell" style="gap:7px;">
+            <div class="az-zone-target">
+              <button class="az-zone-temp-btn az-zone-sp-btn" data-entity="${zone.entity_id}" data-kind="heat" data-dir="down" title="Lower heat setpoint"><ha-icon icon="mdi:minus" style="--mdc-icon-size:16px;"></ha-icon></button>
+              <div class="az-zone-target-val" style="color:#e74c3c;"><ha-icon icon="mdi:fire" style="--mdc-icon-size:16px;"></ha-icon> ${tLow}<span class="az-zone-sp-unit">${uLabel}</span></div>
+              <button class="az-zone-temp-btn az-zone-sp-btn" data-entity="${zone.entity_id}" data-kind="heat" data-dir="up" title="Raise heat setpoint"><ha-icon icon="mdi:plus" style="--mdc-icon-size:16px;"></ha-icon></button>
+            </div>
             <div class="az-zone-current-label">Heat</div>
           </div>
-          <div class="az-zone-cell">
-            <div class="az-zone-sp-val" style="color:#3498db;"><ha-icon icon="mdi:snowflake" style="--mdc-icon-size:18px;"></ha-icon>${tHigh}<span class="az-zone-sp-unit">${uLabel}</span></div>
+          <div class="az-zone-cell" style="gap:7px;">
+            <div class="az-zone-target">
+              <button class="az-zone-temp-btn az-zone-sp-btn" data-entity="${zone.entity_id}" data-kind="cool" data-dir="down" title="Lower cool setpoint"><ha-icon icon="mdi:minus" style="--mdc-icon-size:16px;"></ha-icon></button>
+              <div class="az-zone-target-val" style="color:#3498db;"><ha-icon icon="mdi:snowflake" style="--mdc-icon-size:16px;"></ha-icon> ${tHigh}<span class="az-zone-sp-unit">${uLabel}</span></div>
+              <button class="az-zone-temp-btn az-zone-sp-btn" data-entity="${zone.entity_id}" data-kind="cool" data-dir="up" title="Raise cool setpoint"><ha-icon icon="mdi:plus" style="--mdc-icon-size:16px;"></ha-icon></button>
+            </div>
             <div class="az-zone-current-label">Cool</div>
           </div>
           ` : targetTemp != null ? `
@@ -621,6 +629,34 @@ class AirzoneSchedulesCard extends HTMLElement {
           this._hass.callService('climate', 'set_temperature', { entity_id: zone.entity_id, temperature: newTemp });
         });
       }
+
+      // Dual (heat_cool) inline setpoint steppers. HA's set_temperature needs
+      // BOTH target_temp_low and target_temp_high, with low < high; clamp to
+      // the entity's reported min/max and keep a step-sized deadband.
+      el.querySelectorAll('.az-zone-sp-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const eid = btn.dataset.entity;
+          const a = this._hass.states[eid]?.attributes || {};
+          let low = a.target_temp_low;
+          let high = a.target_temp_high;
+          if (low == null || high == null) return;
+          const haFah = this._haUnitLabel() === '°F';
+          const step = a.target_temp_step || (haFah ? 1 : 0.5);
+          const minT = a.min_temp != null ? a.min_temp : (haFah ? 59 : 15);
+          const maxT = a.max_temp != null ? a.max_temp : (haFah ? 86 : 30);
+          const d = btn.dataset.dir === 'up' ? step : -step;
+          if (btn.dataset.kind === 'heat') {
+            low = Math.min(Math.max(minT, low + d), high - step);
+          } else {
+            high = Math.max(Math.min(maxT, high + d), low + step);
+          }
+          this._hass.callService('climate', 'set_temperature', {
+            entity_id: eid,
+            target_temp_low: low,
+            target_temp_high: high,
+          });
+        });
+      });
 
       container.appendChild(el);
     }
