@@ -230,6 +230,10 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-zone-target-val { font-size:1.5em; font-weight:600; color:var(--az-text); min-width:54px; text-align:center; }
         .az-zone-temp-btn { width:36px; height:36px; border-radius:50%; border:none; background:var(--primary-background-color, var(--az-surface)); color:var(--az-text); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
         .az-zone-temp-btn:hover { background:var(--az-primary); color:white; }
+        .az-sched-temp { display:inline-flex; align-items:center; gap:7px; }
+        .az-sched-sp-btn { width:22px; height:22px; border-radius:50%; border:none; background:var(--primary-background-color, var(--az-surface)); color:var(--az-text); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; transition:all 0.15s; box-shadow:0 1px 4px rgba(0,0,0,0.15); flex-shrink:0; padding:0; }
+        .az-sched-sp-btn:hover { background:var(--az-primary); color:#fff; }
+        .az-sched-sp-btn:active { transform:scale(0.9); }
         .az-zone-stats { display:flex; gap:18px; flex-wrap:wrap; font-size:0.82em; color:var(--az-text2); font-weight:600; padding-top:12px; border-top:1px solid var(--az-border); }
         .az-zone-stat { display:flex; align-items:center; gap:4px; }
         .az-zone-stat ha-icon { --mdc-icon-size: 15px; }
@@ -407,9 +411,19 @@ class AirzoneSchedulesCard extends HTMLElement {
       const isActive = s.enabled !== false;
       const days = s.days || [];
       const time = (s.hour != null) ? fmtTime(s.hour, s.minutes || 0) : '—';
+      // Inline setpoint steppers — adjust the schedule's stored temp on the
+      // fly (debounced ha_schedule_update). Mirrors the zone-card steppers.
+      const spStepper = (kind, color, icon, celsius) => `
+        <span class="az-sched-temp" style="color:${color}; font-weight:700;">
+          <button class="az-sched-sp-btn" data-sid="${s.id}" data-kind="${kind}" data-dir="down" title="Lower ${kind} setpoint"><ha-icon icon="mdi:minus" style="--mdc-icon-size:13px;"></ha-icon></button>
+          <span style="display:inline-flex; align-items:center; gap:4px;"><ha-icon icon="${icon}" style="--mdc-icon-size:15px;"></ha-icon><span class="az-sched-sp-val" data-kind="${kind}">${this._displayTemp(celsius)}</span></span>
+          <button class="az-sched-sp-btn" data-sid="${s.id}" data-kind="${kind}" data-dir="up" title="Raise ${kind} setpoint"><ha-icon icon="mdi:plus" style="--mdc-icon-size:13px;"></ha-icon></button>
+        </span>`;
       const tempHtml = (s.mode === 1 && s.setpoint_heat != null && s.setpoint_cool != null)
-        ? `<span style="display:flex; align-items:center; gap:10px;"><span style="color:#e74c3c; font-weight:700;"><ha-icon icon="mdi:fire" style="--mdc-icon-size:15px;"></ha-icon> ${this._displayTemp(s.setpoint_heat)}</span><span style="color:#3498db; font-weight:700;"><ha-icon icon="mdi:snowflake" style="--mdc-icon-size:15px;"></ha-icon> ${this._displayTemp(s.setpoint_cool)}</span></span>`
-        : `<span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:thermometer" style="--mdc-icon-size: 16px;"></ha-icon> ${s.setpoint != null ? this._displayTemp(s.setpoint) : '—'}</span>`;
+        ? `<span style="display:flex; align-items:center; gap:14px;">${spStepper('heat', '#e74c3c', 'mdi:fire', s.setpoint_heat)}${spStepper('cool', '#3498db', 'mdi:snowflake', s.setpoint_cool)}</span>`
+        : s.setpoint != null
+          ? spStepper('single', 'var(--az-text2)', 'mdi:thermometer', s.setpoint)
+          : `<span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:thermometer" style="--mdc-icon-size: 16px;"></ha-icon> —</span>`;
       const name = s.name || 'Unnamed Schedule';
       const deviceCount = (s.device_ids || []).length;
       const deviceNamesStr = (s.device_ids || [])
@@ -449,6 +463,9 @@ class AirzoneSchedulesCard extends HTMLElement {
       el.querySelector('.az-dup').addEventListener('click', () => this._openEditor(s, true));
       el.querySelector('.az-del').addEventListener('click', () => this._deleteSchedule(s.id));
       el.querySelector('input[type=checkbox]').addEventListener('change', (e) => this._toggleSchedule(s, e.target.checked));
+      el.querySelectorAll('.az-sched-sp-btn').forEach((btn) => {
+        btn.addEventListener('click', () => this._bumpScheduleSetpoint(s, btn.dataset.kind, btn.dataset.dir, el));
+      });
       return el;
     };
 
@@ -950,6 +967,64 @@ class AirzoneSchedulesCard extends HTMLElement {
       this._toast('Error: ' + (err.message || 'Check console'), true);
       this._loadSchedules();
     }
+  }
+
+  // Inline schedule-card setpoint stepper. Steps the displayed value (1°F /
+  // 0.5°C, like the editor), converts back to the Celsius-stored setpoint,
+  // clamps to the same device ranges the editor enforces (single 15–30,
+  // heat 17–28.5, cool 19.5–30.5, heat<cool deadband), updates the shown
+  // value optimistically, and debounces one ha_schedule_update.
+  async _bumpScheduleSetpoint(schedule, kind, dir, el) {
+    const sid = schedule.id;
+    if (!sid) { this._toast('Error: Schedule ID missing', true); return; }
+    this._schedSpPending = this._schedSpPending || {};
+    this._schedSpTimers = this._schedSpTimers || {};
+    const p = this._schedSpPending[sid] || {
+      setpoint: schedule.setpoint,
+      setpoint_heat: schedule.setpoint_heat,
+      setpoint_cool: schedule.setpoint_cool,
+    };
+    const dkey = kind === 'heat' ? 'setpoint_heat' : kind === 'cool' ? 'setpoint_cool' : 'setpoint';
+    const defC = kind === 'heat' ? 19 : kind === 'cool' ? 24 : 21;
+    const curC = p[dkey] != null ? p[dkey] : defC;
+    const disp = this._toDisplay(curC) + (dir === 'up' ? 1 : -1) * (this._useFah ? 1 : 0.5);
+    let newC = Math.round(this._toCelsius(disp) * 2) / 2;
+    const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+    if (kind === 'heat') {
+      const coolC = p.setpoint_cool != null ? p.setpoint_cool : 30.5;
+      newC = clamp(newC, 17, Math.min(28.5, coolC - 0.5));
+    } else if (kind === 'cool') {
+      const heatC = p.setpoint_heat != null ? p.setpoint_heat : 17;
+      newC = clamp(newC, Math.max(19.5, heatC + 0.5), 30.5);
+    } else {
+      newC = clamp(newC, 15, 30);
+    }
+    p[dkey] = newC;
+    this._schedSpPending[sid] = p;
+    const valEl = el.querySelector('.az-sched-sp-val[data-kind="' + kind + '"]');
+    if (valEl) valEl.textContent = this._displayTemp(newC);
+
+    clearTimeout(this._schedSpTimers[sid]);
+    this._schedSpTimers[sid] = setTimeout(async () => {
+      const pend = this._schedSpPending[sid];
+      delete this._schedSpPending[sid];
+      delete this._schedSpTimers[sid];
+      if (!pend) return;
+      const changes = (kind === 'single')
+        ? { setpoint: pend.setpoint }
+        : { setpoint_heat: pend.setpoint_heat, setpoint_cool: pend.setpoint_cool };
+      try {
+        await this._hass.callWS({
+          type: 'call_service', domain: 'airzone_cloud', service: 'ha_schedule_update',
+          service_data: { id: sid, changes }, return_response: true
+        });
+        this._toast('Setpoint updated');
+        await this._loadSchedules();
+      } catch (err) {
+        this._toast('Error: ' + (err.message || 'Check console'), true);
+        this._loadSchedules();
+      }
+    }, 700);
   }
 
   async _deleteSchedule(id) {
