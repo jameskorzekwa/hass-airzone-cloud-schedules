@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post_edit_verify.sh",
+            "timeout": 60,
+            "statusMessage": "Verifying edit (ruff / py_compile / card sync)…"
+          }
+        ]
+      }
+    ]
+  }
+}

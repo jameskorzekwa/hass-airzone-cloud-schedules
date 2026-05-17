@@ -35,6 +35,8 @@ jobs:
           ruff check \
             custom_components/airzone_cloud/__init__.py \
             custom_components/airzone_cloud/services.py \
+            custom_components/airzone_cloud/scheduler.py \
+            custom_components/airzone_cloud/schedule_store.py \
             tests/
 
       - name: Ruff format check
@@ -64,6 +66,12 @@ jobs:
       - name: Run tests with coverage
         run: |
           pytest tests/ -v --tb=short --cov=custom_components --cov-report=term-missing
+
+      - name: Coverage gate (HA-owned scheduler core)
+        run: |
+          python -m coverage report \
+            --include="*/airzone_cloud/scheduler.py,*/airzone_cloud/schedule_store.py" \
+            --fail-under=85
 
   validate:
     name: Validate
@@ -97,6 +105,12 @@ jobs:
 
       - name: Validate JS syntax
         run: node -c custom_components/airzone_cloud/airzone-schedules-card.js
+
+      - name: Card copies in sync
+        run: |
+          diff -q airzone-schedules-card.js \
+            custom_components/airzone_cloud/airzone-schedules-card.js \
+            || { echo "::error::card copies differ — keep both byte-identical"; exit 1; }
 
   release:
     name: Release
