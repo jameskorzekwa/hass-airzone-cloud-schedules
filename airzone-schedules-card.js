@@ -93,7 +93,7 @@ class AirzoneSchedulesCard extends HTMLElement {
     if (!this._hass) return '';
     return Object.entries(this._hass.states)
       .filter(([eid]) => eid.startsWith('climate.'))
-      .map(([eid, s]) => `${eid}:${s.state}:${s.attributes.current_temperature}:${s.attributes.temperature}:${s.attributes.hvac_action}:${s.attributes.current_humidity}:${s.attributes.fan_mode}`)
+      .map(([eid, s]) => `${eid}:${s.state}:${s.attributes.current_temperature}:${s.attributes.temperature}:${s.attributes.target_temp_low}:${s.attributes.target_temp_high}:${s.attributes.hvac_action}:${s.attributes.current_humidity}:${s.attributes.fan_mode}`)
       .join('|');
   }
 
@@ -526,6 +526,12 @@ class AirzoneSchedulesCard extends HTMLElement {
       const minTemp = a.min_temp || 15;
       const maxTemp = a.max_temp || 30;
       const isOff = hvacMode === 'off';
+      // Dual-setpoint (auto / double_sp) zones expose target_temp_low/high
+      // instead of a single temperature.
+      const tLow = a.target_temp_low;
+      const tHigh = a.target_temp_high;
+      const isDual = hvacMode === 'heat_cool' && tLow != null && tHigh != null;
+      const uLabel = this._haUnitLabel();
 
       const modeInfo = HVAC_MODE_MAP[hvacMode] || HVAC_MODE_MAP.off;
       const actionInfo = HVAC_ACTION_MAP[hvacAction] || HVAC_ACTION_MAP.off;
@@ -549,10 +555,18 @@ class AirzoneSchedulesCard extends HTMLElement {
             <div class="az-zone-current-val">${currentTemp != null ? currentTemp : '—'}<span style="font-size:0.4em; color:var(--az-text2);">${this._haUnitLabel()}</span></div>
             <div class="az-zone-current-label">Current</div>
           </div>
-          ${!isOff && targetTemp != null ? `
+          ${isOff ? '<div></div>' : isDual ? `
+          <div class="az-zone-target" style="flex-direction:column; align-items:flex-end; gap:2px;">
+            <div style="display:flex; gap:14px; align-items:baseline;">
+              <span style="color:#e74c3c; font-weight:700; font-size:1.4em;"><ha-icon icon="mdi:fire" style="--mdc-icon-size:16px;"></ha-icon> ${tLow}<span style="font-size:0.5em; color:var(--az-text2);">${uLabel}</span></span>
+              <span style="color:#3498db; font-weight:700; font-size:1.4em;"><ha-icon icon="mdi:snowflake" style="--mdc-icon-size:16px;"></ha-icon> ${tHigh}<span style="font-size:0.5em; color:var(--az-text2);">${uLabel}</span></span>
+            </div>
+            <div class="az-zone-current-label">Set points (heat / cool)</div>
+          </div>
+          ` : targetTemp != null ? `
           <div class="az-zone-target">
             <button class="az-zone-temp-btn az-zone-temp-down" data-entity="${zone.entity_id}" data-min="${minTemp}"><ha-icon icon="mdi:minus" style="--mdc-icon-size:18px;"></ha-icon></button>
-            <div class="az-zone-target-val">${targetTemp != null ? targetTemp : '—'}<span style="font-size:0.5em; color:var(--az-text2);">${this._haUnitLabel()}</span></div>
+            <div class="az-zone-target-val">${targetTemp}<span style="font-size:0.5em; color:var(--az-text2);">${uLabel}</span></div>
             <button class="az-zone-temp-btn az-zone-temp-up" data-entity="${zone.entity_id}" data-max="${maxTemp}"><ha-icon icon="mdi:plus" style="--mdc-icon-size:18px;"></ha-icon></button>
           </div>
           ` : '<div></div>'}
