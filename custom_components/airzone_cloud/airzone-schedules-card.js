@@ -212,24 +212,27 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-filter-btn.active { background:var(--az-primary); color:var(--text-primary-color, #fff); border-color:var(--az-primary); }
         .az-filter-btn ha-icon { --mdc-icon-size: 14px; }
 
-        .az-zone { background:var(--card-background-color, var(--az-surface)); border-radius:16px; overflow:hidden; border:1px solid var(--az-border); transition:all 0.2s; box-shadow: 0 4px 16px rgba(0,0,0,0.06); display:flex; flex-direction:column; padding:24px; gap:16px; }
+        .az-zone { background:var(--card-background-color, var(--az-surface)); border-radius:16px; overflow:hidden; border:1px solid var(--az-border); transition:all 0.2s; box-shadow: 0 4px 16px rgba(0,0,0,0.06); display:flex; flex-direction:column; padding:18px 20px; gap:14px; }
         .az-zone:hover { border-color:var(--az-primary); transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.1); }
-        .az-zone-header { display:flex; align-items:center; gap:16px; }
-        .az-zone-icon { width:52px; height:52px; border-radius:14px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-        .az-zone-icon ha-icon { --mdc-icon-size: 26px; }
+        .az-zone-header { display:flex; align-items:center; gap:14px; }
+        .az-zone-icon { width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+        .az-zone-icon ha-icon { --mdc-icon-size: 22px; }
         .az-zone-name { font-weight:600; font-size:1.2em; color:var(--az-text); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .az-zone-action { font-size:0.8em; font-weight:600; padding:4px 10px; border-radius:8px; display:inline-flex; align-items:center; gap:4px; }
-        .az-zone-temps { display:flex; align-items:center; justify-content:space-between; gap:16px; }
-        .az-zone-current { display:flex; flex-direction:column; align-items:center; gap:2px; }
-        .az-zone-current-val { font-size:2.4em; font-weight:300; color:var(--az-text); letter-spacing:-1px; }
-        .az-zone-current-label { font-size:0.75em; color:var(--az-text2); text-transform:uppercase; font-weight:600; letter-spacing:0.5px; }
-        .az-zone-target { display:flex; align-items:center; gap:12px; }
-        .az-zone-target-val { font-size:1.8em; font-weight:500; color:var(--az-primary); min-width:70px; text-align:center; }
-        .az-zone-temp-btn { width:40px; height:40px; border-radius:50%; border:none; background:var(--primary-background-color, var(--az-surface)); color:var(--az-text); font-size:1.4em; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .az-zone-action { font-size:0.78em; font-weight:600; padding:4px 10px; border-radius:8px; display:inline-flex; align-items:center; gap:4px; }
+        .az-zone-temps { display:flex; align-items:flex-end; gap:30px; flex-wrap:wrap; padding-top:14px; border-top:1px solid var(--az-border); }
+        .az-zone-cell { display:flex; flex-direction:column; align-items:center; gap:4px; }
+        .az-zone-current-val { font-size:2.1em; font-weight:300; color:var(--az-text); letter-spacing:-1px; line-height:1; }
+        .az-zone-sp-val { font-size:1.5em; font-weight:700; line-height:1; display:flex; align-items:center; gap:5px; }
+        .az-zone-sp-unit { font-size:0.45em; color:var(--az-text2); font-weight:600; }
+        .az-zone-current-label { font-size:0.68em; color:var(--az-text2); text-transform:uppercase; font-weight:700; letter-spacing:0.6px; }
+        .az-zone-off { font-size:1.3em; font-weight:600; color:var(--az-text2); line-height:1; }
+        .az-zone-target { display:flex; align-items:center; gap:10px; }
+        .az-zone-target-val { font-size:1.5em; font-weight:600; color:var(--az-text); min-width:54px; text-align:center; }
+        .az-zone-temp-btn { width:36px; height:36px; border-radius:50%; border:none; background:var(--primary-background-color, var(--az-surface)); color:var(--az-text); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
         .az-zone-temp-btn:hover { background:var(--az-primary); color:white; }
-        .az-zone-stats { display:flex; gap:16px; flex-wrap:wrap; font-size:0.9em; color:var(--az-text2); font-weight:500; }
+        .az-zone-stats { display:flex; gap:18px; flex-wrap:wrap; font-size:0.82em; color:var(--az-text2); font-weight:600; padding-top:12px; border-top:1px solid var(--az-border); }
         .az-zone-stat { display:flex; align-items:center; gap:4px; }
-        .az-zone-stat ha-icon { --mdc-icon-size: 16px; }
+        .az-zone-stat ha-icon { --mdc-icon-size: 15px; }
 
         @media(max-width: 600px) {
           .az-list { grid-template-columns: 1fr; padding: 0 16px 16px; }
@@ -404,9 +407,9 @@ class AirzoneSchedulesCard extends HTMLElement {
       const isActive = s.enabled !== false;
       const days = s.days || [];
       const time = (s.hour != null) ? fmtTime(s.hour, s.minutes || 0) : '—';
-      const temp = (s.mode === 1 && s.setpoint_heat != null && s.setpoint_cool != null)
-        ? this._displayTemp(s.setpoint_heat) + ' / ' + this._displayTemp(s.setpoint_cool)
-        : (s.setpoint != null ? this._displayTemp(s.setpoint) : '—');
+      const tempHtml = (s.mode === 1 && s.setpoint_heat != null && s.setpoint_cool != null)
+        ? `<span style="display:flex; align-items:center; gap:10px;"><span style="color:#e74c3c; font-weight:700;"><ha-icon icon="mdi:fire" style="--mdc-icon-size:15px;"></ha-icon> ${this._displayTemp(s.setpoint_heat)}</span><span style="color:#3498db; font-weight:700;"><ha-icon icon="mdi:snowflake" style="--mdc-icon-size:15px;"></ha-icon> ${this._displayTemp(s.setpoint_cool)}</span></span>`
+        : `<span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:thermometer" style="--mdc-icon-size: 16px;"></ha-icon> ${s.setpoint != null ? this._displayTemp(s.setpoint) : '—'}</span>`;
       const name = s.name || 'Unnamed Schedule';
       const deviceCount = (s.device_ids || []).length;
       const deviceNamesStr = (s.device_ids || [])
@@ -422,7 +425,7 @@ class AirzoneSchedulesCard extends HTMLElement {
             <div class="az-schedule-name">${name}</div>
             <div class="az-schedule-meta">
               <span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:clock-outline" style="--mdc-icon-size: 16px;"></ha-icon> ${time}</span>
-              <span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:thermometer" style="--mdc-icon-size: 16px;"></ha-icon> ${temp}</span>
+              ${tempHtml}
               <span style="display:flex; align-items:center; gap:4px;">${modeInfo.label}</span>
               ${s.pspeed ? '<span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:fan" style="--mdc-icon-size: 16px;"></ha-icon> ' + s.pspeed + '</span>' : ''}
             </div>
@@ -551,25 +554,34 @@ class AirzoneSchedulesCard extends HTMLElement {
           </label>
         </div>
         <div class="az-zone-temps">
-          <div class="az-zone-current">
-            <div class="az-zone-current-val">${currentTemp != null ? currentTemp : '—'}<span style="font-size:0.4em; color:var(--az-text2);">${this._haUnitLabel()}</span></div>
+          <div class="az-zone-cell">
+            <div class="az-zone-current-val">${currentTemp != null ? currentTemp : '—'}<span class="az-zone-sp-unit">${this._haUnitLabel()}</span></div>
             <div class="az-zone-current-label">Current</div>
           </div>
-          ${isOff ? '<div></div>' : isDual ? `
-          <div class="az-zone-target" style="flex-direction:column; align-items:flex-end; gap:2px;">
-            <div style="display:flex; gap:14px; align-items:baseline;">
-              <span style="color:#e74c3c; font-weight:700; font-size:1.4em;"><ha-icon icon="mdi:fire" style="--mdc-icon-size:16px;"></ha-icon> ${tLow}<span style="font-size:0.5em; color:var(--az-text2);">${uLabel}</span></span>
-              <span style="color:#3498db; font-weight:700; font-size:1.4em;"><ha-icon icon="mdi:snowflake" style="--mdc-icon-size:16px;"></ha-icon> ${tHigh}<span style="font-size:0.5em; color:var(--az-text2);">${uLabel}</span></span>
-            </div>
-            <div class="az-zone-current-label">Set points (heat / cool)</div>
+          ${isOff ? `
+          <div class="az-zone-cell">
+            <div class="az-zone-off">Off</div>
+            <div class="az-zone-current-label">Power</div>
+          </div>
+          ` : isDual ? `
+          <div class="az-zone-cell">
+            <div class="az-zone-sp-val" style="color:#e74c3c;"><ha-icon icon="mdi:fire" style="--mdc-icon-size:18px;"></ha-icon>${tLow}<span class="az-zone-sp-unit">${uLabel}</span></div>
+            <div class="az-zone-current-label">Heat</div>
+          </div>
+          <div class="az-zone-cell">
+            <div class="az-zone-sp-val" style="color:#3498db;"><ha-icon icon="mdi:snowflake" style="--mdc-icon-size:18px;"></ha-icon>${tHigh}<span class="az-zone-sp-unit">${uLabel}</span></div>
+            <div class="az-zone-current-label">Cool</div>
           </div>
           ` : targetTemp != null ? `
-          <div class="az-zone-target">
-            <button class="az-zone-temp-btn az-zone-temp-down" data-entity="${zone.entity_id}" data-min="${minTemp}"><ha-icon icon="mdi:minus" style="--mdc-icon-size:18px;"></ha-icon></button>
-            <div class="az-zone-target-val">${targetTemp}<span style="font-size:0.5em; color:var(--az-text2);">${uLabel}</span></div>
-            <button class="az-zone-temp-btn az-zone-temp-up" data-entity="${zone.entity_id}" data-max="${maxTemp}"><ha-icon icon="mdi:plus" style="--mdc-icon-size:18px;"></ha-icon></button>
+          <div class="az-zone-cell" style="gap:7px;">
+            <div class="az-zone-target">
+              <button class="az-zone-temp-btn az-zone-temp-down" data-entity="${zone.entity_id}" data-min="${minTemp}"><ha-icon icon="mdi:minus" style="--mdc-icon-size:16px;"></ha-icon></button>
+              <div class="az-zone-target-val">${targetTemp}<span class="az-zone-sp-unit">${uLabel}</span></div>
+              <button class="az-zone-temp-btn az-zone-temp-up" data-entity="${zone.entity_id}" data-max="${maxTemp}"><ha-icon icon="mdi:plus" style="--mdc-icon-size:16px;"></ha-icon></button>
+            </div>
+            <div class="az-zone-current-label">Target</div>
           </div>
-          ` : '<div></div>'}
+          ` : ''}
         </div>
         <div class="az-zone-stats">
           ${humidity != null ? '<span class="az-zone-stat"><ha-icon icon="mdi:water-percent"></ha-icon> ' + humidity + '%</span>' : ''}
