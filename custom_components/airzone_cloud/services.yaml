@@ -1,6 +1,6 @@
 get_installation_schedules:
   name: "Get Installation Schedules"
-  description: "Gets the schedules for an Airzone Cloud installation."
+  description: "Lists the Home-Assistant-owned Airzone schedules (config_entry is accepted but ignored; scheduling is HA-owned now)."
   fields:
     config_entry:
       name: Config Entry
@@ -159,23 +159,5 @@ set_schedule_tags:
       name: Away
       description: Whether this is an away/vacation schedule.
       required: false
-      selector:
-        boolean:
-
-patch_installation_schedules_activate:
-  name: "Activate/Deactivate Schedules"
-  description: "Globally activates or deactivates schedules for an Airzone Cloud installation."
-  fields:
-    config_entry:
-      name: Config Entry
-      description: The ID of the Airzone Cloud integration config entry.
-      required: true
-      selector:
-        config_entry:
-          integration: airzone_cloud
-    active:
-      name: Active
-      description: Whether the schedules should be globally active.
-      required: true
       selector:
         boolean:
