@@ -13,6 +13,8 @@ from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.typing import ConfigType
 
 from .coordinator import AirzoneCloudConfigEntry, AirzoneUpdateCoordinator
+from .schedule_store import HAScheduleStore
+from .scheduler import AirzoneScheduler
 from .store import ScheduleTagStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -101,6 +103,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: AirzoneCloudConfigEntry)
         await tag_store.load()
         hass.data[DOMAIN]["tag_store"] = tag_store
 
+    if "ha_scheduler" not in hass.data[DOMAIN]:
+        schedule_store = HAScheduleStore(hass)
+        await schedule_store.load()
+        scheduler = AirzoneScheduler(hass, schedule_store)
+        await scheduler.async_start()
+        hass.data[DOMAIN]["ha_schedule_store"] = schedule_store
+        hass.data[DOMAIN]["ha_scheduler"] = scheduler
+
     await async_setup_services(hass)
 
     return True
@@ -110,6 +120,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: AirzoneCloudConfigEntry
     """Unload a config entry."""
 
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        from .const import DOMAIN
+
+        scheduler = hass.data.get(DOMAIN, {}).pop("ha_scheduler", None)
+        if scheduler is not None:
+            await scheduler.async_stop()
+        hass.data.get(DOMAIN, {}).pop("ha_schedule_store", None)
+
         coordinator = entry.runtime_data
         await coordinator.airzone.logout()
 

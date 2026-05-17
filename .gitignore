@@ -2,3 +2,11 @@ __pycache__/
 *.pyc
 .pytest_cache/
 *.egg-info/
+
+# coverage data (artifact)
+.coverage
+.coverage.*
+htmlcov/
+
+# personal per-machine overrides (not team-shared)
+.claude/settings.local.json
