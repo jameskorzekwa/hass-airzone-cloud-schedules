@@ -38,15 +38,27 @@ cloud scheduler is intentionally deactivated.
 3. `python3 -m ruff check custom_components tests` — clean.
 4. Syntax check passed on every changed file (`py_compile` / `node --check`).
 5. Card change → both copies byte-identical.
-6. Outcome reported honestly, incl. anything unverified or deferred.
+6. **New feature → deployed to the live HA server and verified there.** For UI
+   features, confirm it actually renders correctly in the browser (hard-refresh
+   first). "Works locally" is not done.
+7. Outcome reported honestly, incl. anything unverified or deferred.
+
+## Workflows
+
+- **"release the change(s)"** = create a branch, push it, open a PR, then
+  merge the PR. (Never commit to `main` directly. Merging to `main` triggers
+  the release workflow: version bump + GitHub release.)
 
 ## Boundaries
 
-- **Always:** keep both copies of `airzone-schedules-card.js` (repo root +
-  `custom_components/airzone_cloud/`) byte-identical; `git pull` before starting
-  work; checksum-verify any deploy.
-- **Ask first:** restarting/​reloading the live HA server; deploying to the live
-  server; `git commit`/`push`; deleting user data; schema/storage format changes.
+- **Always:** keep both copies of `airzone-schedules-card.js` byte-identical;
+  `git pull` before starting work; checksum-verify any deploy; **deploy a new
+  feature to the live HA server to test it** (scp both card targets +
+  `sha1sum` verify + config-entry reload; then hard-refresh & confirm in the
+  browser). Pre-authorized — no need to ask for the deploy itself.
+- **Ask first:** a full HA **restart** (needed for Python changes — disruptive);
+  deleting user data; schema/storage format changes. (Commits/push/merge go
+  through the "release the changes" workflow above.)
 - **Never:** commit secrets or the HA token; weaken or delete a test to make it
   pass; push to `main` directly; report green when it isn't.
 
