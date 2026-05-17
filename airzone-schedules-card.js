@@ -234,6 +234,8 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-sched-sp-btn { width:22px; height:22px; border-radius:50%; border:none; background:var(--primary-background-color, var(--az-surface)); color:var(--az-text); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; transition:all 0.15s; box-shadow:0 1px 4px rgba(0,0,0,0.15); flex-shrink:0; padding:0; }
         .az-sched-sp-btn:hover { background:var(--az-primary); color:#fff; }
         .az-sched-sp-btn:active { transform:scale(0.9); }
+        .az-inline-select { border:1px solid var(--az-border); border-radius:8px; background:var(--primary-background-color, var(--az-surface)); color:var(--az-text); font-family:inherit; font-size:0.95em; font-weight:600; padding:3px 6px; cursor:pointer; outline:none; transition:border 0.2s; max-width:140px; }
+        .az-inline-select:hover, .az-inline-select:focus { border-color:var(--az-primary); }
         .az-zone-stats { display:flex; gap:18px; flex-wrap:wrap; font-size:0.82em; color:var(--az-text2); font-weight:600; padding-top:12px; border-top:1px solid var(--az-border); }
         .az-zone-stat { display:flex; align-items:center; gap:4px; }
         .az-zone-stat ha-icon { --mdc-icon-size: 15px; }
@@ -440,8 +442,8 @@ class AirzoneSchedulesCard extends HTMLElement {
             <div class="az-schedule-meta">
               <span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:clock-outline" style="--mdc-icon-size: 16px;"></ha-icon> ${time}</span>
               ${tempHtml}
-              <span style="display:flex; align-items:center; gap:4px;">${modeInfo.label}</span>
-              ${s.pspeed ? '<span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:fan" style="--mdc-icon-size: 16px;"></ha-icon> ' + s.pspeed + '</span>' : ''}
+              <span style="display:flex; align-items:center; gap:4px;">${modeInfo.icon}<select class="az-inline-select az-sched-mode" data-sid="${s.id}" title="Mode">${Object.entries(MODES).map(([v, m]) => '<option value="' + v + '"' + (parseInt(v) === s.mode ? ' selected' : '') + '>' + m.label + '</option>').join('')}</select></span>
+              <span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:fan" style="--mdc-icon-size: 16px;"></ha-icon><select class="az-inline-select az-sched-fan" data-sid="${s.id}" title="Fan speed">${[['auto', 'Auto'], ['1', 'Low'], ['2', 'Medium'], ['3', 'High']].map(([v, l]) => '<option value="' + v + '"' + ((s.pspeed == null || s.pspeed === '' ? 'auto' : String(s.pspeed)) === v ? ' selected' : '') + '>' + l + '</option>').join('')}</select></span>
             </div>
           </div>
           <label class="az-schedule-toggle">
@@ -466,6 +468,33 @@ class AirzoneSchedulesCard extends HTMLElement {
       el.querySelectorAll('.az-sched-sp-btn').forEach((btn) => {
         btn.addEventListener('click', () => this._bumpScheduleSetpoint(s, btn.dataset.kind, btn.dataset.dir, el));
       });
+      const schedModeSel = el.querySelector('.az-sched-mode');
+      if (schedModeSel) {
+        schedModeSel.addEventListener('change', () => {
+          const newMode = parseInt(schedModeSel.value);
+          // Mode determines setpoint shape: Auto (1) uses dual heat/cool,
+          // others a single setpoint. Backfill defaults (like the editor) so
+          // the scheduler always has a usable setpoint for the new mode.
+          const changes = { mode: newMode };
+          if (newMode === 1) {
+            changes.setpoint = null;
+            changes.setpoint_heat = s.setpoint_heat != null ? s.setpoint_heat : 19;
+            changes.setpoint_cool = s.setpoint_cool != null ? s.setpoint_cool : 24;
+          } else {
+            changes.setpoint = s.setpoint != null ? s.setpoint : 21;
+            changes.setpoint_heat = null;
+            changes.setpoint_cool = null;
+          }
+          this._updateSchedule(s.id, changes, 'Mode updated');
+        });
+      }
+      const schedFanSel = el.querySelector('.az-sched-fan');
+      if (schedFanSel) {
+        schedFanSel.addEventListener('change', () => {
+          const v = schedFanSel.value;
+          this._updateSchedule(s.id, { pspeed: v === 'auto' ? 'auto' : parseInt(v) }, 'Fan speed updated');
+        });
+      }
       return el;
     };
 
@@ -610,8 +639,10 @@ class AirzoneSchedulesCard extends HTMLElement {
         </div>
         <div class="az-zone-stats">
           ${humidity != null ? '<span class="az-zone-stat"><ha-icon icon="mdi:water-percent"></ha-icon> ' + humidity + '%</span>' : ''}
-          ${fanMode ? '<span class="az-zone-stat"><ha-icon icon="mdi:fan"></ha-icon> ' + fanMode + '</span>' : ''}
-          <span class="az-zone-stat"><ha-icon icon="mdi:${modeInfo.icon.replace('mdi:', '')}"></ha-icon> ${modeInfo.label}</span>
+          ${(a.fan_modes && a.fan_modes.length)
+            ? '<span class="az-zone-stat"><ha-icon icon="mdi:fan"></ha-icon> <select class="az-inline-select az-zone-fan" data-entity="' + zone.entity_id + '" title="Fan speed">' + a.fan_modes.map(f => '<option value="' + f + '"' + (f === fanMode ? ' selected' : '') + '>' + f.charAt(0).toUpperCase() + f.slice(1) + '</option>').join('') + '</select></span>'
+            : (fanMode ? '<span class="az-zone-stat"><ha-icon icon="mdi:fan"></ha-icon> ' + fanMode + '</span>' : '')}
+          <span class="az-zone-stat"><ha-icon icon="mdi:${modeInfo.icon.replace('mdi:', '')}"></ha-icon> <select class="az-inline-select az-zone-mode" data-entity="${zone.entity_id}" title="Mode">${(a.hvac_modes && a.hvac_modes.length ? a.hvac_modes : [hvacMode]).map(m => '<option value="' + m + '"' + (m === hvacMode ? ' selected' : '') + '>' + ((HVAC_MODE_MAP[m] && HVAC_MODE_MAP[m].label) || m) + '</option>').join('')}</select></span>
         </div>
       `;
 
@@ -674,6 +705,25 @@ class AirzoneSchedulesCard extends HTMLElement {
           });
         });
       });
+
+      // Inline mode / fan-speed selectors. HA pushes the new state, and
+      // _getZoneHash tracks state + fan_mode, so the zone re-renders itself.
+      const fanSel = el.querySelector('.az-zone-fan');
+      if (fanSel) {
+        fanSel.addEventListener('change', () => {
+          this._hass.callService('climate', 'set_fan_mode', {
+            entity_id: fanSel.dataset.entity, fan_mode: fanSel.value,
+          });
+        });
+      }
+      const modeSel = el.querySelector('.az-zone-mode');
+      if (modeSel) {
+        modeSel.addEventListener('change', () => {
+          this._hass.callService('climate', 'set_hvac_mode', {
+            entity_id: modeSel.dataset.entity, hvac_mode: modeSel.value,
+          });
+        });
+      }
 
       container.appendChild(el);
     }
@@ -962,6 +1012,22 @@ class AirzoneSchedulesCard extends HTMLElement {
         service_data: { id: schedId, changes: { enabled: !!active } }, return_response: true
       });
       this._toast(active ? 'Schedule enabled' : 'Schedule disabled');
+      await this._loadSchedules();
+    } catch (err) {
+      this._toast('Error: ' + (err.message || 'Check console'), true);
+      this._loadSchedules();
+    }
+  }
+
+  // Generic partial-update of a schedule (inline mode / fan-speed selectors).
+  async _updateSchedule(id, changes, msg) {
+    if (!id) { this._toast('Error: Schedule ID missing', true); return; }
+    try {
+      await this._hass.callWS({
+        type: 'call_service', domain: 'airzone_cloud', service: 'ha_schedule_update',
+        service_data: { id, changes }, return_response: true
+      });
+      this._toast(msg || 'Schedule updated');
       await this._loadSchedules();
     } catch (err) {
       this._toast('Error: ' + (err.message || 'Check console'), true);
