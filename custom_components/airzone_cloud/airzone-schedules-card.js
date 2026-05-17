@@ -62,15 +62,6 @@ class AirzoneSchedulesCard extends HTMLElement {
   _haUnitLabel() { return this._hass?.config?.unit_system?.temperature || '°C'; }
   _toDisplay(celsius) { return this._useFah ? cToF(celsius) : celsius; }
   _toCelsius(display) { return this._useFah ? fToC(display) : display; }
-  // Returns the setpoint in Celsius from a schedule object, handling both top-level
-  // plain number (current API format) and legacy start_conf.setpoint object format.
-  _getSetpointC(schedule) {
-    const top = schedule?.setpoint;
-    if (top != null) return typeof top === 'object' ? top.celsius : top;
-    const conf = schedule?.start_conf?.setpoint;
-    if (conf != null) return typeof conf === 'object' ? conf.celsius : conf;
-    return null;
-  }
 
   set panel(panel) {
     this._panel = panel;
@@ -343,23 +334,7 @@ class AirzoneSchedulesCard extends HTMLElement {
 
   async _loadData() {
     await this._loadDevices();
-    await this._loadTags();
     await this._loadSchedules();
-  }
-
-  async _loadTags() {
-    try {
-      const svcData = this.config.config_entry ? { config_entry: this.config.config_entry } : {};
-      const resp = await this._hass.callWS({
-        type: 'call_service', domain: 'airzone_cloud', service: 'get_schedule_tags',
-        service_data: svcData, return_response: true
-      });
-      const raw = resp.response || resp;
-      this._tags = raw.tags || {};
-    } catch (err) {
-      console.warn('Failed to load schedule tags', err);
-      this._tags = {};
-    }
   }
 
   async _loadDevices() {
@@ -385,14 +360,12 @@ class AirzoneSchedulesCard extends HTMLElement {
     this._lastScheduleLoad = Date.now();
     list.innerHTML = '<div class="az-loading"><div class="az-spinner"></div><br/>Loading schedules…</div>';
     try {
-      const svcData = this.config.config_entry ? { config_entry: this.config.config_entry } : {};
       const resp = await this._hass.callWS({
-        type: 'call_service', domain: 'airzone_cloud', service: 'get_installation_schedules',
-        service_data: svcData, return_response: true
+        type: 'call_service', domain: 'airzone_cloud', service: 'ha_schedule_list',
+        service_data: {}, return_response: true
       });
       const raw = resp.response || resp;
-      const data = raw.schedules || raw;
-      this._schedules = Array.isArray(data) ? data : Object.entries(data).map(([id, s]) => ({ _id: id, ...s }));
+      this._schedules = Array.isArray(raw.schedules) ? raw.schedules : [];
       this._renderList();
     } catch (err) {
       list.innerHTML = '<div class="az-empty"><div class="az-empty-icon"><ha-icon icon="mdi:alert-outline" style="--mdc-icon-size: 48px;"></ha-icon></div>Error loading schedules<br/><small>' + (err.message || '') + '</small></div>';
@@ -412,9 +385,8 @@ class AirzoneSchedulesCard extends HTMLElement {
     // Apply filters
     if (this._filterSeason !== null || this._filterAway !== null) {
       sorted = sorted.filter(s => {
-        const tags = this._tags[s._id] || {};
-        if (this._filterSeason !== null && (tags.season || null) !== this._filterSeason) return false;
-        if (this._filterAway !== null && !!tags.away !== this._filterAway) return false;
+        if (this._filterSeason !== null && (s.season || null) !== this._filterSeason) return false;
+        if (this._filterAway !== null && !!s.away !== this._filterAway) return false;
         return true;
       });
     }
@@ -424,17 +396,17 @@ class AirzoneSchedulesCard extends HTMLElement {
       return;
     }
 
-    const enabled = sorted.filter(s => s.prog_enabled !== false);
-    const disabled = sorted.filter(s => s.prog_enabled === false);
+    const enabled = sorted.filter(s => s.enabled !== false);
+    const disabled = sorted.filter(s => s.enabled === false);
 
     const buildCard = (s) => {
-      const sc = s.start_conf || {};
-      const modeInfo = MODES[sc.mode] || DEFAULT_MODE;
-      const isActive = s.prog_enabled !== false;
-      const days = sc.days || [];
-      const time = (sc.hour != null) ? fmtTime(sc.hour, sc.minutes || 0) : '—';
-      const spC = this._getSetpointC(s);
-      const temp = spC != null ? this._displayTemp(spC) : '—';
+      const modeInfo = MODES[s.mode] || DEFAULT_MODE;
+      const isActive = s.enabled !== false;
+      const days = s.days || [];
+      const time = (s.hour != null) ? fmtTime(s.hour, s.minutes || 0) : '—';
+      const temp = (s.mode === 1 && s.setpoint_heat != null && s.setpoint_cool != null)
+        ? this._displayTemp(s.setpoint_heat) + ' / ' + this._displayTemp(s.setpoint_cool)
+        : (s.setpoint != null ? this._displayTemp(s.setpoint) : '—');
       const name = s.name || 'Unnamed Schedule';
       const deviceCount = (s.device_ids || []).length;
       const deviceNamesStr = (s.device_ids || [])
@@ -452,27 +424,27 @@ class AirzoneSchedulesCard extends HTMLElement {
               <span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:clock-outline" style="--mdc-icon-size: 16px;"></ha-icon> ${time}</span>
               <span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:thermometer" style="--mdc-icon-size: 16px;"></ha-icon> ${temp}</span>
               <span style="display:flex; align-items:center; gap:4px;">${modeInfo.label}</span>
-              ${sc.pspeed ? '<span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:fan" style="--mdc-icon-size: 16px;"></ha-icon> ' + sc.pspeed + '</span>' : ''}
+              ${s.pspeed ? '<span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:fan" style="--mdc-icon-size: 16px;"></ha-icon> ' + s.pspeed + '</span>' : ''}
             </div>
           </div>
           <label class="az-schedule-toggle">
-            <input type="checkbox" ${isActive ? 'checked' : ''} data-id="${s._id}"/>
+            <input type="checkbox" ${isActive ? 'checked' : ''} data-id="${s.id}"/>
             <span class="az-toggle-slider"></span>
           </label>
           <div class="az-schedule-actions">
-            <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-edit" data-id="${s._id}" title="Edit"><ha-icon icon="mdi:pencil" style="--mdc-icon-size: 18px;"></ha-icon></button>
-            <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-dup" data-id="${s._id}" title="Duplicate"><ha-icon icon="mdi:content-copy" style="--mdc-icon-size: 18px;"></ha-icon></button>
-            <button class="az-btn az-btn-danger az-btn-icon az-btn-sm az-del" data-id="${s._id}" title="Delete"><ha-icon icon="mdi:delete" style="--mdc-icon-size: 18px;"></ha-icon></button>
+            <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-edit" data-id="${s.id}" title="Edit"><ha-icon icon="mdi:pencil" style="--mdc-icon-size: 18px;"></ha-icon></button>
+            <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-dup" data-id="${s.id}" title="Duplicate"><ha-icon icon="mdi:content-copy" style="--mdc-icon-size: 18px;"></ha-icon></button>
+            <button class="az-btn az-btn-danger az-btn-icon az-btn-sm az-del" data-id="${s.id}" title="Delete"><ha-icon icon="mdi:delete" style="--mdc-icon-size: 18px;"></ha-icon></button>
           </div>
         </div>
         <div class="az-days">${DAY_LABELS.map((d, i) => '<span class="az-day ' + (days.includes(i) ? 'az-day-on' : 'az-day-off') + '">' + d + '</span>').join('')}</div>
-        ${(() => { const t = this._tags[s._id] || {}; const b = []; if (t.season === 'winter') b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#3498db22;color:#3498db;padding:4px 10px;border-radius:8px;font-size:0.8em;font-weight:600;"><ha-icon icon="mdi:snowflake" style="--mdc-icon-size:14px;"></ha-icon> Winter</span>'); if (t.season === 'summer') b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#e7743422;color:#e74c3c;padding:4px 10px;border-radius:8px;font-size:0.8em;font-weight:600;"><ha-icon icon="mdi:white-balance-sunny" style="--mdc-icon-size:14px;"></ha-icon> Summer</span>'); if (t.away) b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#f39c1222;color:#f39c12;padding:4px 10px;border-radius:8px;font-size:0.8em;font-weight:600;"><ha-icon icon="mdi:airplane" style="--mdc-icon-size:14px;"></ha-icon> Away</span>'); return b.length ? '<div style="display:flex;gap:8px;padding:0 24px 8px;flex-wrap:wrap;">' + b.join('') + '</div>' : ''; })()}
+        ${(() => { const b = []; if (s.season === 'winter') b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#3498db22;color:#3498db;padding:4px 10px;border-radius:8px;font-size:0.8em;font-weight:600;"><ha-icon icon="mdi:snowflake" style="--mdc-icon-size:14px;"></ha-icon> Winter</span>'); if (s.season === 'summer') b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#e7743422;color:#e74c3c;padding:4px 10px;border-radius:8px;font-size:0.8em;font-weight:600;"><ha-icon icon="mdi:white-balance-sunny" style="--mdc-icon-size:14px;"></ha-icon> Summer</span>'); if (s.away) b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#f39c1222;color:#f39c12;padding:4px 10px;border-radius:8px;font-size:0.8em;font-weight:600;"><ha-icon icon="mdi:airplane" style="--mdc-icon-size:14px;"></ha-icon> Away</span>'); return b.length ? '<div style="display:flex;gap:8px;padding:0 24px 8px;flex-wrap:wrap;">' + b.join('') + '</div>' : ''; })()}
         ${deviceCount ? '<div class="az-devices" style="display:flex; align-items:center; gap:4px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="' + deviceNamesStr + '"><ha-icon icon="mdi:map-marker-outline" style="--mdc-icon-size: 16px; flex-shrink: 0;"></ha-icon> <span style="overflow: hidden; text-overflow: ellipsis;">' + deviceNamesStr + '</span></div>' : ''}
       `;
 
       el.querySelector('.az-edit').addEventListener('click', () => this._openEditor(s));
       el.querySelector('.az-dup').addEventListener('click', () => this._openEditor(s, true));
-      el.querySelector('.az-del').addEventListener('click', () => this._deleteSchedule(s._id));
+      el.querySelector('.az-del').addEventListener('click', () => this._deleteSchedule(s.id));
       el.querySelector('input[type=checkbox]').addEventListener('change', (e) => this._toggleSchedule(s, e.target.checked));
       return el;
     };
@@ -631,26 +603,34 @@ class AirzoneSchedulesCard extends HTMLElement {
   _openEditor(schedule, isDuplicate = false) {
     const isNew = !schedule || isDuplicate;
     const useDefaults = !schedule;
-    const sc = schedule ? (schedule.start_conf || {}) : {};
     const name = (schedule && !isDuplicate) ? (schedule.name || '') : '';
-    const hour = useDefaults ? 8 : (sc.hour != null ? sc.hour : 8);
-    const minutes = useDefaults ? 0 : (sc.minutes != null ? sc.minutes : 0);
-    const mode = useDefaults ? 3 : (sc.mode || 3);
-    const spC = this._getSetpointC(schedule);
+    const hour = useDefaults ? 8 : (schedule.hour != null ? schedule.hour : 8);
+    const minutes = useDefaults ? 0 : (schedule.minutes != null ? schedule.minutes : 0);
+    const mode = useDefaults ? 3 : (schedule.mode || 3);
+    const spC = schedule && schedule.setpoint != null ? schedule.setpoint : null;
+    const spHeatC = schedule && schedule.setpoint_heat != null ? schedule.setpoint_heat : null;
+    const spCoolC = schedule && schedule.setpoint_cool != null ? schedule.setpoint_cool : null;
     const temp = spC != null ? this._toDisplay(spC) : null;
-    const days = useDefaults ? [1,2,3,4,5] : (sc.days || []);
-    const pspeed = useDefaults ? 'auto' : (sc.pspeed || 'auto');
+    const tempHeat = spHeatC != null ? this._toDisplay(spHeatC) : null;
+    const tempCool = spCoolC != null ? this._toDisplay(spCoolC) : null;
+    const days = useDefaults ? [1,2,3,4,5] : (schedule.days || []);
+    const pspeed = useDefaults ? 'auto' : (schedule.pspeed || 'auto');
     const deviceIds = useDefaults ? [] : (schedule.device_ids || []);
-    const existingTags = schedule ? (this._tags[schedule._id] || {}) : {};
-    const edSeason = existingTags.season || '';
-    const edAway = !!existingTags.away;
-    const edEnabled = isDuplicate ? true : (schedule ? schedule.prog_enabled !== false : true);
+    const edSeason = schedule && schedule.season ? schedule.season : '';
+    const edAway = !!(schedule && schedule.away);
+    const edEnabled = isDuplicate ? true : (schedule ? schedule.enabled !== false : true);
 
     let selectedMode = mode;
     let selectedDays = [...days];
     let tempVal = temp;
-    let tempCelsius = spC; // raw Celsius value for the API; avoids lossy display round-trip
-    let tempTouched = false; // true once user changes temp via +/- buttons
+    let tempCelsius = spC; // raw Celsius; avoids lossy display round-trip
+    let tempTouched = false;
+    let tempValHeat = tempHeat;        // auto/heat_cool: heat (low) -> setpoint_heat
+    let tempHeatCelsius = spHeatC;
+    let tempHeatTouched = false;
+    let tempValCool = tempCool;        // auto/heat_cool: cool (high) -> setpoint_cool
+    let tempCoolCelsius = spCoolC;
+    let tempCoolTouched = false;
 
     const overlay = document.createElement('dialog');
     overlay.className = 'az-editor-overlay';
@@ -663,7 +643,7 @@ class AirzoneSchedulesCard extends HTMLElement {
         <div class="az-editor-body">
           <div class="az-field">
             <label>Schedule Name</label>
-            <input type="text" id="ed-name" value="${name}" placeholder="e.g. Winter Night" maxlength="11"/>
+            <input type="text" id="ed-name" value="${name}" placeholder="e.g. Winter Night"/>
           </div>
           <div class="az-field">
             <label>Enabled</label>
@@ -692,12 +672,26 @@ class AirzoneSchedulesCard extends HTMLElement {
               ${Object.entries(MODES).map(([v, m]) => '<button class="az-mode-btn ' + (parseInt(v) === selectedMode ? 'active' : '') + '" data-mode="' + v + '">' + m.icon + ' ' + m.label + '</button>').join('')}
             </div>
           </div>
-          <div class="az-field">
+          <div class="az-field" id="ed-temp-single" style="display:${selectedMode === 1 ? 'none' : ''}">
             <label>Temperature</label>
             <div class="az-temp-row">
               <button class="az-temp-btn" id="ed-temp-down" title="Decrease Temperature"><ha-icon icon="mdi:minus"></ha-icon></button>
               <div class="az-temp-val"><span id="ed-temp-display">${tempVal != null ? tempVal : '—'}</span><span class="az-temp-unit">${this._unitLabel()}</span></div>
               <button class="az-temp-btn" id="ed-temp-up" title="Increase Temperature"><ha-icon icon="mdi:plus"></ha-icon></button>
+            </div>
+          </div>
+          <div class="az-field" id="ed-temp-dual" style="display:${selectedMode === 1 ? '' : 'none'}">
+            <label>Heat Setpoint (Low)</label>
+            <div class="az-temp-row">
+              <button class="az-temp-btn" id="ed-heat-down" title="Decrease Heat Setpoint"><ha-icon icon="mdi:minus"></ha-icon></button>
+              <div class="az-temp-val"><span id="ed-heat-display" style="color:#e74c3c">${tempValHeat != null ? tempValHeat : '—'}</span><span class="az-temp-unit">${this._unitLabel()}</span></div>
+              <button class="az-temp-btn" id="ed-heat-up" title="Increase Heat Setpoint"><ha-icon icon="mdi:plus"></ha-icon></button>
+            </div>
+            <label style="margin-top:20px;">Cool Setpoint (High)</label>
+            <div class="az-temp-row">
+              <button class="az-temp-btn" id="ed-cool-down" title="Decrease Cool Setpoint"><ha-icon icon="mdi:minus"></ha-icon></button>
+              <div class="az-temp-val"><span id="ed-cool-display" style="color:#3498db">${tempValCool != null ? tempValCool : '—'}</span><span class="az-temp-unit">${this._unitLabel()}</span></div>
+              <button class="az-temp-btn" id="ed-cool-up" title="Increase Cool Setpoint"><ha-icon icon="mdi:plus"></ha-icon></button>
             </div>
           </div>
           <div class="az-field">
@@ -755,20 +749,43 @@ class AirzoneSchedulesCard extends HTMLElement {
       });
     });
     // Mode buttons
+    const syncTempFields = () => {
+      const single = overlay.querySelector('#ed-temp-single');
+      const dual = overlay.querySelector('#ed-temp-dual');
+      single.style.display = selectedMode === 1 ? 'none' : '';
+      dual.style.display = selectedMode === 1 ? '' : 'none';
+    };
     overlay.querySelectorAll('.az-mode-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         overlay.querySelectorAll('.az-mode-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         selectedMode = parseInt(btn.dataset.mode);
+        syncTempFields();
+        // Sensible defaults when first switching to auto
+        if (selectedMode === 1) {
+          if (tempValHeat == null) { tempValHeat = this._useFah ? 66 : 19; overlay.querySelector('#ed-heat-display').textContent = tempValHeat; }
+          if (tempValCool == null) { tempValCool = this._useFah ? 75 : 24; overlay.querySelector('#ed-cool-display').textContent = tempValCool; }
+        }
       });
     });
-    // Temp (step: 0.5°C or 1°F; limits: 15-30°C / 59-86°F)
-    const tempDisplay = overlay.querySelector('#ed-temp-display');
+    // Step 0.5°C / 1°F. Ranges follow the device: single 15-30°C,
+    // heat/low 17-28.5°C (63-83°F), cool/high 19.5-30.5°C (67-87°F).
     const step = this._useFah ? 1 : 0.5;
     const minT = this._toDisplay(15);
     const maxT = this._toDisplay(30);
+    const minHeatT = this._toDisplay(17);
+    const maxHeatT = this._toDisplay(28.5);
+    const minCoolT = this._toDisplay(19.5);
+    const maxCoolT = this._toDisplay(30.5);
+    const tempDisplay = overlay.querySelector('#ed-temp-display');
     overlay.querySelector('#ed-temp-down').addEventListener('click', () => { if (tempVal == null) tempVal = this._useFah ? 70 : 21; tempVal = Math.max(minT, tempVal - step); tempDisplay.textContent = tempVal; tempTouched = true; });
     overlay.querySelector('#ed-temp-up').addEventListener('click', () => { if (tempVal == null) tempVal = this._useFah ? 70 : 21; tempVal = Math.min(maxT, tempVal + step); tempDisplay.textContent = tempVal; tempTouched = true; });
+    const heatDisplay = overlay.querySelector('#ed-heat-display');
+    overlay.querySelector('#ed-heat-down').addEventListener('click', () => { if (tempValHeat == null) tempValHeat = this._useFah ? 66 : 19; tempValHeat = Math.max(minHeatT, tempValHeat - step); heatDisplay.textContent = tempValHeat; tempHeatTouched = true; });
+    overlay.querySelector('#ed-heat-up').addEventListener('click', () => { if (tempValHeat == null) tempValHeat = this._useFah ? 66 : 19; tempValHeat = Math.min(maxHeatT, tempValHeat + step); heatDisplay.textContent = tempValHeat; tempHeatTouched = true; });
+    const coolDisplay = overlay.querySelector('#ed-cool-display');
+    overlay.querySelector('#ed-cool-down').addEventListener('click', () => { if (tempValCool == null) tempValCool = this._useFah ? 75 : 24; tempValCool = Math.max(minCoolT, tempValCool - step); coolDisplay.textContent = tempValCool; tempCoolTouched = true; });
+    overlay.querySelector('#ed-cool-up').addEventListener('click', () => { if (tempValCool == null) tempValCool = this._useFah ? 75 : 24; tempValCool = Math.min(maxCoolT, tempValCool + step); coolDisplay.textContent = tempValCool; tempCoolTouched = true; });
     // Close
     const closeOverlay = () => { overlay.close(); overlay.remove(); };
     overlay.querySelectorAll('.az-close').forEach(btn => btn.addEventListener('click', closeOverlay));
@@ -783,62 +800,63 @@ class AirzoneSchedulesCard extends HTMLElement {
       const devIds = Array.from(overlay.querySelectorAll('.ed-device-checkbox:checked')).map(cb => cb.value);
       const edProgEnabled = overlay.querySelector('#ed-enabled').checked;
 
-      const spCelsius = tempTouched ? (tempVal != null ? this._toCelsius(tempVal) : null) : tempCelsius;
-
-      const scObj = {
-          mode: selectedMode,
-          pspeed: edSpeed === 'auto' ? 'auto' : parseInt(edSpeed),
-          days: selectedDays.sort(),
-          hour: edHour,
-          minutes: edMin,
-      };
-      if (spCelsius != null) scObj.setpoint = spCelsius;
-
-      const payload = {
-        name: edName,
-        type: 'week',
-        prog_enabled: edProgEnabled,
-        start_conf: scObj,
-        device_ids: devIds,
-      };
-      if (spCelsius != null) payload.opts = { units: 0 };
-
       const seasonVal = overlay.querySelector('#ed-season').value || null;
       const awayVal = overlay.querySelector('#ed-away').checked;
 
-      try {
-        const svcData = { schedule_data: payload };
-        if (this.config.config_entry) svcData.config_entry = this.config.config_entry;
+      const obj = {
+        name: edName,
+        enabled: edProgEnabled,
+        mode: selectedMode,
+        pspeed: edSpeed === 'auto' ? 'auto' : parseInt(edSpeed),
+        days: selectedDays.sort((a, b) => a - b),
+        hour: edHour,
+        minutes: edMin,
+        device_ids: devIds,
+        season: seasonVal,
+        away: awayVal,
+        setpoint: null,
+        setpoint_heat: null,
+        setpoint_cool: null,
+      };
 
-        let tagScheduleId = null;
+      if (selectedMode === 1) {
+        // Use whatever value is shown (default-filled or user-adjusted); only
+        // fall back to the raw Celsius when no display value exists. (Don't
+        // gate on the +/- "touched" flag — the shown default is a real value.)
+        const heatC = tempValHeat != null ? this._toCelsius(tempValHeat) : tempHeatCelsius;
+        const coolC = tempValCool != null ? this._toCelsius(tempValCool) : tempCoolCelsius;
+        if (heatC == null || heatC < 17 || heatC > 28.5) {
+          this._toast('Heat setpoint must be ' + this._toDisplay(17) + '–' + this._toDisplay(28.5) + this._unitLabel(), true);
+          return;
+        }
+        if (coolC == null || coolC < 19.5 || coolC > 30.5) {
+          this._toast('Cool setpoint must be ' + this._toDisplay(19.5) + '–' + this._toDisplay(30.5) + this._unitLabel(), true);
+          return;
+        }
+        if (heatC >= coolC) {
+          this._toast('Heat setpoint must be below cool setpoint', true);
+          return;
+        }
+        obj.setpoint_heat = heatC;
+        obj.setpoint_cool = coolC;
+      } else {
+        const spCelsius = tempVal != null ? this._toCelsius(tempVal) : tempCelsius;
+        obj.setpoint = spCelsius;
+      }
+
+      try {
         if (isNew) {
-          const postResp = await this._hass.callWS({
-            type: 'call_service', domain: 'airzone_cloud', service: 'post_installation_schedule',
-            service_data: svcData, return_response: true
+          await this._hass.callWS({
+            type: 'call_service', domain: 'airzone_cloud', service: 'ha_schedule_add',
+            service_data: { schedule: obj }, return_response: true
           });
-          const created = postResp?.response?.response || postResp?.response || {};
-          tagScheduleId = created._id || created.schedule?._id || null;
           this._toast(isDuplicate ? 'Schedule duplicated!' : 'Schedule created!');
         } else {
-          svcData.schedule_id = schedule._id;
-          await this._hass.callService('airzone_cloud', 'patch_installation_schedule', svcData);
-          tagScheduleId = schedule._id;
+          await this._hass.callWS({
+            type: 'call_service', domain: 'airzone_cloud', service: 'ha_schedule_update',
+            service_data: { id: schedule.id, changes: obj }, return_response: true
+          });
           this._toast('Schedule updated!');
-        }
-
-        // Save tags
-        if (tagScheduleId && (seasonVal || awayVal)) {
-          try {
-            const tagData = { schedule_id: tagScheduleId, season: seasonVal, away: awayVal };
-            if (this.config.config_entry) tagData.config_entry = this.config.config_entry;
-            await this._hass.callService('airzone_cloud', 'set_schedule_tags', tagData);
-          } catch (tagErr) { console.warn('Failed to save tags', tagErr); }
-        } else if (tagScheduleId && !seasonVal && !awayVal) {
-          try {
-            const tagData = { schedule_id: tagScheduleId, season: null, away: false };
-            if (this.config.config_entry) tagData.config_entry = this.config.config_entry;
-            await this._hass.callService('airzone_cloud', 'set_schedule_tags', tagData);
-          } catch (tagErr) { console.warn('Failed to clear tags', tagErr); }
         }
 
         closeOverlay();
@@ -849,106 +867,23 @@ class AirzoneSchedulesCard extends HTMLElement {
     });
   }
 
-  // Returns a Date for when a schedule most recently would have fired, or null.
-  _getLastFired(schedule, now) {
-    const sc = schedule.start_conf || {};
-    const days = sc.days || [];
-    if (!days.length || sc.hour == null) return null;
-    const schedMin = sc.minutes || 0;
-    const today = (now.getDay() + 6) % 7; // JS getDay: 0=Sun → API days: 0=Mon
-    for (let offset = 0; offset < 7; offset++) {
-      const checkDay = (today - offset + 7) % 7;
-      if (!days.includes(checkDay)) continue;
-      if (offset === 0) {
-        if (now.getHours() * 60 + now.getMinutes() >= sc.hour * 60 + schedMin) {
-          return new Date(now.getFullYear(), now.getMonth(), now.getDate(), sc.hour, schedMin);
-        }
-      } else {
-        return new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset, sc.hour, schedMin);
-      }
-    }
-    return null;
-  }
-
-  // After a toggle, apply the mode & setpoint each zone should have based on active schedules.
-  async _applyActiveSchedules() {
-    await this._loadDevices();
-    if (!this._availableDevices?.length) return;
-    const now = new Date();
-    const enabled = this._schedules.filter(s => s.prog_enabled !== false);
-    if (!enabled.length) return;
-
-    const actions = new Map();
-    for (const dev of this._availableDevices) {
-      const matching = enabled.filter(s => (s.device_ids || []).includes(dev.id));
-      if (!matching.length) continue;
-      let best = null, bestTime = null;
-      for (const s of matching) {
-        const t = this._getLastFired(s, now);
-        if (t && (!bestTime || t > bestTime)) { bestTime = t; best = s; }
-      }
-      if (!best) continue;
-      const sc = best.start_conf || {};
-      actions.set(dev.entity_id, { mode: SCHEDULE_MODE_TO_HVAC[sc.mode], setpoint: this._getSetpointC(best) });
-    }
-    if (!actions.size) return;
-
-    const haFah = this._haUnitLabel() === '°F';
-    const promises = [];
-    for (const [eid, a] of actions) {
-      if (a.mode) {
-        promises.push(this._hass.callService('climate', 'set_hvac_mode', { entity_id: eid, hvac_mode: a.mode }));
-      }
-      if (a.setpoint != null) {
-        const temp = haFah ? cToF(a.setpoint) : a.setpoint;
-        promises.push(this._hass.callService('climate', 'set_temperature', { entity_id: eid, temperature: temp }));
-      }
-    }
-    try {
-      await Promise.all(promises);
-      this._toast(`Applied schedule settings to ${actions.size} zone(s)`);
-    } catch (err) {
-      this._toast('Error applying schedule settings: ' + (err.message || 'Check console'), true);
-    }
-  }
+  // NOTE: schedule execution (firing schedules, applying mode + dual/single
+  // setpoints, missed-transition catch-up) is owned entirely by the integration's
+  // AirzoneScheduler (server-side). The card only does CRUD on the HA store.
 
   async _toggleSchedule(schedule, active) {
-    const schedId = schedule._id || schedule.id;
+    const schedId = schedule.id;
     if (!schedId) {
       this._toast('Error: Schedule ID missing', true);
       return;
     }
-
     try {
-      const sc = schedule.start_conf || {};
-      const spC = this._getSetpointC(schedule);
-      const scObj = {
-          mode: sc.mode,
-          pspeed: sc.pspeed,
-          days: sc.days,
-          hour: sc.hour,
-          minutes: sc.minutes,
-      };
-      if (spC != null) scObj.setpoint = spC;
-      const payload = {
-        name: schedule.name,
-        type: schedule.type || 'week',
-        prog_enabled: !!active,
-        start_conf: scObj,
-        device_ids: schedule.device_ids || [],
-      };
-      if (spC != null) payload.opts = { units: 0 };
-
-      const svcData = {
-        schedule_id: schedId,
-        schedule_data: payload
-      };
-      if (this.config.config_entry) svcData.config_entry = this.config.config_entry;
-
-      await this._hass.callService('airzone_cloud', 'patch_installation_schedule', svcData);
+      await this._hass.callWS({
+        type: 'call_service', domain: 'airzone_cloud', service: 'ha_schedule_update',
+        service_data: { id: schedId, changes: { enabled: !!active } }, return_response: true
+      });
       this._toast(active ? 'Schedule enabled' : 'Schedule disabled');
       await this._loadSchedules();
-      await this._applyActiveSchedules();
     } catch (err) {
       this._toast('Error: ' + (err.message || 'Check console'), true);
       this._loadSchedules();
@@ -958,9 +893,10 @@ class AirzoneSchedulesCard extends HTMLElement {
   async _deleteSchedule(id) {
     if (!confirm('Delete this schedule? This cannot be undone.')) return;
     try {
-      const svcData = { schedule_id: id };
-      if (this.config.config_entry) svcData.config_entry = this.config.config_entry;
-      await this._hass.callService('airzone_cloud', 'delete_installation_schedule', svcData);
+      await this._hass.callWS({
+        type: 'call_service', domain: 'airzone_cloud', service: 'ha_schedule_delete',
+        service_data: { id }, return_response: true
+      });
       this._toast('Schedule deleted');
       this._loadSchedules();
     } catch (err) {
@@ -973,8 +909,32 @@ class AirzoneSchedulesCard extends HTMLElement {
     t.className = 'az-toast';
     t.style.background = error ? '#e74c3c' : '#27ae60';
     t.textContent = msg;
-    this.appendChild(t);
-    setTimeout(() => t.remove(), 3000);
+    // The editor uses <dialog>.showModal(), which renders in the browser
+    // "top layer" above ALL normal DOM (z-index can't beat it). Use the
+    // Popover API so the toast also enters the top layer and shows above
+    // the modal + its backdrop. Fall back to attaching inside the open
+    // dialog (its subtree is already in the top layer) when unsupported.
+    const supportsPopover =
+      Object.prototype.hasOwnProperty.call(HTMLElement.prototype, 'popover');
+    if (supportsPopover) {
+      t.popover = 'manual';
+      // Own the placement so default UA popover styles can't shift it.
+      t.style.cssText += ';position:fixed;inset:auto;bottom:32px;left:50%;transform:translateX(-50%);margin:0;border:none;';
+      this.appendChild(t);
+      try { t.showPopover(); } catch (e) { /* ignore */ }
+    } else {
+      const dlg = this.querySelector('dialog.az-editor-overlay[open]');
+      (dlg || this).appendChild(t);
+    }
+    const remove = () => {
+      try { if (t.matches && t.matches(':popover-open')) t.hidePopover(); } catch (e) { /* ignore */ }
+      t.remove();
+    };
+    t.style.cursor = 'pointer';
+    t.title = 'Click to dismiss';
+    t.addEventListener('click', remove);
+    // Errors linger so they can actually be read; success is brief.
+    setTimeout(remove, error ? 9000 : 3000);
   }
 
   static getStubConfig() {
