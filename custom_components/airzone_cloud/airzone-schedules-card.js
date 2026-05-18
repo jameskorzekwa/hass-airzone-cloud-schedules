@@ -229,7 +229,7 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-zone-target-val { font-size:1.5em; font-weight:600; color:var(--az-text); min-width:54px; text-align:center; }
         .az-zone-temp-btn { width:36px; height:36px; border-radius:50%; border:none; background:var(--primary-background-color, var(--az-surface)); color:var(--az-text); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
         .az-zone-temp-btn:hover { background:var(--az-primary); color:white; }
-        .az-sched-temp { display:inline-flex; align-items:center; gap:7px; }
+        .az-sched-temp { display:inline-flex; align-items:center; gap:7px; flex-wrap:nowrap; white-space:nowrap; flex-shrink:0; }
         .az-sched-sp-btn { width:22px; height:22px; border-radius:50%; border:none; background:var(--primary-background-color, var(--az-surface)); color:var(--az-text); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; transition:all 0.15s; box-shadow:0 1px 4px rgba(0,0,0,0.15); flex-shrink:0; padding:0; }
         .az-sched-sp-btn:hover { background:var(--az-primary); color:#fff; }
         .az-sched-sp-btn:active { transform:scale(0.9); }
@@ -454,7 +454,7 @@ class AirzoneSchedulesCard extends HTMLElement {
           <button class="az-sched-sp-btn" data-sid="${s.id}" data-kind="${kind}" data-dir="up" title="Raise ${kind} setpoint"><ha-icon icon="mdi:plus" style="--mdc-icon-size:13px;"></ha-icon></button>
         </span>`;
       const tempHtml = (s.mode === 1 && s.setpoint_heat != null && s.setpoint_cool != null)
-        ? `<span style="display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px;">${spStepper('heat', '#e74c3c', 'mdi:fire', s.setpoint_heat)}${spStepper('cool', '#3498db', 'mdi:snowflake', s.setpoint_cool)}</span>`
+        ? `<span style="display:inline-flex; align-items:center; flex-wrap:nowrap; flex-shrink:0; gap:14px;">${spStepper('heat', '#e74c3c', 'mdi:fire', s.setpoint_heat)}${spStepper('cool', '#3498db', 'mdi:snowflake', s.setpoint_cool)}</span>`
         : s.setpoint != null
           ? spStepper('single', 'var(--az-text2)', 'mdi:thermometer', s.setpoint)
           : `<span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:thermometer" style="--mdc-icon-size: 16px;"></ha-icon> —</span>`;
