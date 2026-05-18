@@ -121,11 +121,11 @@ class AirzoneSchedulesCard extends HTMLElement {
         :host { --az-primary: var(--primary-color, #4a90d9); --az-danger: var(--error-color, #e74c3c); --az-success: var(--success-color, #27ae60); --az-bg: var(--card-background-color, #1c1c1c); --az-surface: var(--primary-background-color, #252525); --az-text: var(--primary-text-color, #e0e0e0); --az-text2: var(--secondary-text-color, #999); --az-border: var(--divider-color, rgba(200,200,200,0.1)); font-family: var(--primary-font-family, -apple-system, sans-serif); }
         ha-card { transition: all 0.3s ease; }
         ha-card.is-panel { background: transparent; border: none; box-shadow: none; padding: 20px; max-width: 1400px; margin: 0 auto; }
-        .az-header { display:flex; align-items:center; justify-content:space-between; padding:24px 32px 16px; }
+        .az-header { display:flex; align-items:center; justify-content:space-between; padding:24px 32px 16px; flex-wrap:wrap; gap:12px; }
         ha-card.is-panel .az-header { padding: 16px 0 16px 0; }
         .az-header h2 { margin:0; font-size:1.8em; font-weight:600; color:var(--az-text); display:flex; align-items:center; gap:12px; }
         .az-header h2 ha-icon { --mdc-icon-size: 36px; color: var(--az-primary); }
-        .az-header-actions { display:flex; gap:12px; align-items:center; }
+        .az-header-actions { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
         .az-tabs { display:flex; gap:0; padding:0 32px 16px; border-bottom: 1px solid var(--az-border); }
         ha-card.is-panel .az-tabs { padding: 0 0 16px 0; }
         .az-tab { border:none; background:transparent; color:var(--az-text2); font-size:1.05em; font-weight:600; padding:12px 24px; cursor:pointer; transition:all 0.2s; border-bottom:3px solid transparent; font-family: inherit; display:flex; align-items:center; gap:8px; }
@@ -245,14 +245,44 @@ class AirzoneSchedulesCard extends HTMLElement {
 
         @media(max-width: 600px) {
           .az-list { grid-template-columns: 1fr; padding: 0 16px 16px; }
-          .az-schedule-top { padding: 16px; flex-wrap: wrap; }
+          .az-header { padding: 16px; }
+          ha-card.is-panel .az-header { padding: 8px 0 12px; }
+          .az-header h2 { font-size: 1.4em; }
+          .az-header h2 ha-icon { --mdc-icon-size: 28px; }
+          .az-header-actions { gap: 8px; }
+          .az-filters { padding: 12px 16px 8px; }
+          ha-card.is-panel .az-filters { padding: 12px 0 8px; }
+          .az-schedule-top { padding: 16px; flex-wrap: wrap; gap: 14px; }
+          .az-schedule-icon { width: 48px; height: 48px; }
+          .az-schedule-icon ha-icon { --mdc-icon-size: 24px; }
+          .az-schedule-name { font-size: 1.15em; }
+          .az-schedule-meta { gap: 10px 14px; }
           .az-schedule-actions { margin-left: 0; width: 100%; justify-content: flex-end; }
+          .az-days { padding: 0 16px 16px; }
+          .az-devices { padding: 0 16px 16px; }
+          .az-sched-select { width: 124px; }
+          .az-zone { padding: 16px; }
+          .az-zone-temps { gap: 16px; }
           .az-editor-body { padding: 20px; }
           .az-editor-header { padding: 20px; }
           .az-editor-footer { padding: 20px; }
           .az-temp-row { gap: 12px; justify-content: center; }
           .az-tabs { padding: 0 16px 12px; }
           .az-tab { padding: 10px 16px; font-size: 0.95em; }
+        }
+        @media(max-width: 420px) {
+          .az-header h2 { font-size: 1.25em; }
+          .az-header h2 ha-icon { --mdc-icon-size: 24px; }
+          .az-header-actions { width: 100%; justify-content: space-between; }
+          .az-btn { padding: 8px 12px; font-size: 0.9em; }
+          .az-tab { padding: 9px 12px; font-size: 0.9em; }
+          .az-zone-name { font-size: 1.05em; }
+          .az-zone-temps { gap: 12px; justify-content: space-between; }
+          .az-zone-current-val { font-size: 1.9em; }
+          .az-schedule-meta { gap: 8px 12px; font-size: 0.9em; }
+          .az-sched-select { width: 110px; }
+          .az-days { gap: 4px; }
+          .az-day { font-size: 0.7em; height: 32px; }
         }
       </style>
       <div class="az-header">
