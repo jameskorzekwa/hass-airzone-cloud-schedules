@@ -149,14 +149,13 @@ class AirzoneSchedulesCard extends HTMLElement {
         ha-card.is-panel .az-list { padding: 20px 0 0; }
         .az-empty { text-align:center; padding:64px 20px; color:var(--az-text2); grid-column: 1 / -1; font-size: 1.2em; }
         .az-empty-icon { margin-bottom:16px; color: var(--az-border); }
-        .az-schedule-group { display:grid; grid-template-columns: 1fr; gap:16px; }
-        @media(min-width: 800px) { .az-schedule-group { grid-template-columns: repeat(2, 1fr); } }
+        .az-schedule-group { display:grid; grid-template-columns: repeat(auto-fill, minmax(min(440px, 100%), 1fr)); gap:16px; }
         .az-schedule { background:var(--card-background-color, var(--az-surface)); border-radius:16px; overflow:hidden; border:1px solid var(--az-border); transition:all 0.2s; box-shadow: 0 4px 16px rgba(0,0,0,0.06); display: flex; flex-direction: column; }
         .az-schedule:hover { border-color:var(--az-primary); transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.1); }
-        .az-schedule-top { display:flex; align-items:center; padding:24px; gap:20px; }
+        .az-schedule-top { display:flex; align-items:center; flex-wrap:wrap; padding:24px; gap:20px; }
         .az-schedule-icon { width:64px; height:64px; border-radius:16px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
         .az-schedule-icon ha-icon { --mdc-icon-size: 32px; }
-        .az-schedule-info { flex:1; min-width:0; }
+        .az-schedule-info { flex:1 1 200px; min-width:0; }
         .az-schedule-name { font-weight:600; font-size:1.3em; color:var(--az-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; letter-spacing: 0.3px; }
         .az-schedule-meta { font-size:0.95em; color:var(--az-text2); margin-top:8px; display:flex; gap:16px; flex-wrap:wrap; font-weight: 500; }
         .az-schedule-toggle { position:relative; width:54px; height:30px; flex-shrink:0; cursor: pointer; }
@@ -455,7 +454,7 @@ class AirzoneSchedulesCard extends HTMLElement {
           <button class="az-sched-sp-btn" data-sid="${s.id}" data-kind="${kind}" data-dir="up" title="Raise ${kind} setpoint"><ha-icon icon="mdi:plus" style="--mdc-icon-size:13px;"></ha-icon></button>
         </span>`;
       const tempHtml = (s.mode === 1 && s.setpoint_heat != null && s.setpoint_cool != null)
-        ? `<span style="display:flex; align-items:center; gap:14px;">${spStepper('heat', '#e74c3c', 'mdi:fire', s.setpoint_heat)}${spStepper('cool', '#3498db', 'mdi:snowflake', s.setpoint_cool)}</span>`
+        ? `<span style="display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px;">${spStepper('heat', '#e74c3c', 'mdi:fire', s.setpoint_heat)}${spStepper('cool', '#3498db', 'mdi:snowflake', s.setpoint_cool)}</span>`
         : s.setpoint != null
           ? spStepper('single', 'var(--az-text2)', 'mdi:thermometer', s.setpoint)
           : `<span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:thermometer" style="--mdc-icon-size: 16px;"></ha-icon> —</span>`;
