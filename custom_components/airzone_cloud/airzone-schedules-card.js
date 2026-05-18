@@ -150,22 +150,27 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-empty { text-align:center; padding:64px 20px; color:var(--az-text2); grid-column: 1 / -1; font-size: 1.2em; }
         .az-empty-icon { margin-bottom:16px; color: var(--az-border); }
         .az-schedule-group { display:grid; grid-template-columns: repeat(auto-fill, minmax(min(440px, 100%), 1fr)); gap:16px; }
-        .az-schedule { background:var(--card-background-color, var(--az-surface)); border-radius:16px; overflow:hidden; border:1px solid var(--az-border); transition:all 0.2s; box-shadow: 0 4px 16px rgba(0,0,0,0.06); display: flex; flex-direction: column; }
+        .az-schedule { background:var(--card-background-color, var(--az-surface)); border-radius:16px; overflow:hidden; border:1px solid var(--az-border); transition:all 0.2s; box-shadow: 0 4px 16px rgba(0,0,0,0.06); display: flex; flex-direction: column; padding:18px 20px; gap:14px; }
         .az-schedule:hover { border-color:var(--az-primary); transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.1); }
-        .az-schedule-top { display:flex; align-items:center; flex-wrap:wrap; padding:24px; gap:20px; }
-        .az-schedule-icon { width:64px; height:64px; border-radius:16px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-        .az-schedule-icon ha-icon { --mdc-icon-size: 32px; }
-        .az-schedule-info { flex:1 1 200px; min-width:0; }
-        .az-schedule-name { font-weight:600; font-size:1.3em; color:var(--az-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; letter-spacing: 0.3px; }
-        .az-schedule-meta { font-size:0.95em; color:var(--az-text2); margin-top:8px; display:flex; gap:16px; flex-wrap:wrap; font-weight: 500; }
+        .az-schedule-header { display:flex; align-items:center; gap:14px; }
+        .az-schedule-icon { width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+        .az-schedule-icon ha-icon { --mdc-icon-size: 22px; }
+        .az-schedule-name { font-weight:600; font-size:1.2em; color:var(--az-text); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; letter-spacing:0.3px; }
+        .az-schedule-sec { padding-top:14px; border-top:1px solid var(--az-border); }
+        .az-schedule-climate { display:flex; align-items:center; flex-wrap:wrap; gap:14px 22px; }
+        .az-schedule-when { display:flex; flex-direction:column; gap:10px; }
+        .az-schedule-when-time { display:flex; align-items:center; gap:6px; font-size:0.9em; font-weight:600; color:var(--az-text2); }
+        .az-schedule-when-time ha-icon { --mdc-icon-size:16px; }
+        .az-schedule-foot { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; }
+        .az-schedule-foot-info { display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:0.85em; color:var(--az-text2); font-weight:500; min-width:0; }
         .az-schedule-toggle { position:relative; width:54px; height:30px; flex-shrink:0; cursor: pointer; }
         .az-schedule-toggle input { opacity:0; width:0; height:0; position: absolute; }
         .az-toggle-slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:var(--disabled-text-color, #777); border-radius:30px; transition:0.3s; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
         .az-toggle-slider:before { position:absolute; content:""; height:22px; width:22px; left:4px; bottom:4px; background:white; border-radius:50%; transition:0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
         .az-schedule-toggle input:checked + .az-toggle-slider { background:var(--az-success); }
         .az-schedule-toggle input:checked + .az-toggle-slider:before { transform:translateX(24px); }
-        .az-schedule-actions { display:flex; gap:8px; flex-shrink:0; margin-left: auto; }
-        .az-days { display:flex; gap:6px; padding:0 24px 24px; margin-top: auto; }
+        .az-schedule-actions { display:flex; gap:8px; flex-shrink:0; }
+        .az-days { display:flex; gap:6px; }
         .az-day { flex: 1; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:0.85em; font-weight:700; text-transform: uppercase; letter-spacing: 0.5px; }
         .az-day-on { background:var(--az-primary); color:var(--text-primary-color, white); box-shadow: 0 4px 10px rgba(74, 144, 217, 0.3); }
         .az-day-off { background:var(--az-surface); color:var(--az-text2); border: 1px solid var(--az-border); }
@@ -201,7 +206,7 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-editor-footer { display:flex; justify-content:flex-end; gap:12px; padding:24px 32px; border-top:1px solid var(--az-border); background: var(--secondary-background-color, rgba(0,0,0,0.02)); }
         .az-toast { position:fixed; bottom:32px; left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:12px; color:white; font-size:1em; font-weight: 600; z-index:1000; animation:az-fade-in 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
         @keyframes az-fade-in { from { opacity:0; transform:translateX(-50%) translateY(20px) scale(0.9); } to { opacity:1; transform:translateX(-50%) translateY(0) scale(1); } }
-        .az-devices { font-size:0.85em; color:var(--az-text2); padding:0 24px 20px; margin-top: 4px; font-weight: 500; }
+        .az-devices { display:flex; align-items:center; gap:4px; min-width:0; max-width:100%; overflow:hidden; white-space:nowrap; }
 
         .az-filters { display:flex; gap:8px; padding:16px 32px 8px; flex-wrap:wrap; align-items:center; }
         ha-card.is-panel .az-filters { padding: 16px 0 8px 0; }
@@ -253,14 +258,9 @@ class AirzoneSchedulesCard extends HTMLElement {
           .az-header-actions { gap: 8px; }
           .az-filters { padding: 12px 16px 8px; }
           ha-card.is-panel .az-filters { padding: 12px 0 8px; }
-          .az-schedule-top { padding: 16px; flex-wrap: wrap; gap: 14px; }
-          .az-schedule-icon { width: 48px; height: 48px; }
-          .az-schedule-icon ha-icon { --mdc-icon-size: 24px; }
-          .az-schedule-name { font-size: 1.15em; }
-          .az-schedule-meta { gap: 10px 14px; }
-          .az-schedule-actions { margin-left: 0; width: 100%; justify-content: flex-end; }
-          .az-days { padding: 0 16px 16px; }
-          .az-devices { padding: 0 16px 16px; }
+          .az-schedule { padding: 16px; }
+          .az-schedule-name { font-size: 1.1em; }
+          .az-schedule-climate { gap: 12px 16px; }
           .az-sched-select { width: 124px; }
           .az-zone { padding: 16px; }
           .az-zone-temps, .az-zone-hc { gap: 16px; }
@@ -281,7 +281,7 @@ class AirzoneSchedulesCard extends HTMLElement {
           .az-zone-temps { gap: 12px; justify-content: space-between; }
           .az-zone-hc { gap: 12px; }
           .az-zone-current-val { font-size: 1.9em; }
-          .az-schedule-meta { gap: 8px 12px; font-size: 0.9em; }
+          .az-schedule-climate { gap: 10px 12px; }
           .az-sched-select { width: 110px; }
           .az-days { gap: 4px; }
           .az-day { font-size: 0.7em; height: 32px; }
@@ -469,33 +469,44 @@ class AirzoneSchedulesCard extends HTMLElement {
 
       const el = document.createElement('div');
       el.className = 'az-schedule';
+      const badgesHtml = (() => {
+        const b = [];
+        if (s.season === 'winter') b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#3498db22;color:#3498db;padding:4px 10px;border-radius:8px;font-weight:600;"><ha-icon icon="mdi:snowflake" style="--mdc-icon-size:14px;"></ha-icon> Winter</span>');
+        if (s.season === 'summer') b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#e7743422;color:#e74c3c;padding:4px 10px;border-radius:8px;font-weight:600;"><ha-icon icon="mdi:white-balance-sunny" style="--mdc-icon-size:14px;"></ha-icon> Summer</span>');
+        if (s.away) b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#f39c1222;color:#f39c12;padding:4px 10px;border-radius:8px;font-weight:600;"><ha-icon icon="mdi:airplane" style="--mdc-icon-size:14px;"></ha-icon> Away</span>');
+        return b.join('');
+      })();
+      const deviceHtml = deviceCount
+        ? '<span class="az-devices" title="' + deviceNamesStr + '"><ha-icon icon="mdi:map-marker-outline" style="--mdc-icon-size: 15px; flex-shrink: 0;"></ha-icon> <span style="overflow:hidden; text-overflow:ellipsis;">' + deviceNamesStr + '</span></span>'
+        : '';
       el.innerHTML = `
-        <div class="az-schedule-top">
+        <div class="az-schedule-header">
           <div class="az-schedule-icon" style="background:${modeInfo.color}22; color:${modeInfo.color}">${modeInfo.icon}</div>
-          <div class="az-schedule-info">
-            <div class="az-schedule-name">${name}</div>
-            <div class="az-schedule-meta">
-              <span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:clock-outline" style="--mdc-icon-size: 16px;"></ha-icon> ${time}</span>
-              ${tempHtml}
-              <span class="az-sched-sel-group">
-                <span class="az-sched-sel-wrap">${modeInfo.icon}<select class="az-inline-select az-sched-select az-sched-mode" data-sid="${s.id}" title="Mode">${Object.entries(MODES).map(([v, m]) => '<option value="' + v + '"' + (parseInt(v) === s.mode ? ' selected' : '') + '>' + m.label + '</option>').join('')}</select></span>
-                <span class="az-sched-sel-wrap"><ha-icon icon="mdi:fan"></ha-icon><select class="az-inline-select az-sched-select az-sched-fan" data-sid="${s.id}" title="Fan speed">${[['auto', 'Auto'], ['1', 'Low'], ['2', 'Medium'], ['3', 'High']].map(([v, l]) => '<option value="' + v + '"' + ((s.pspeed == null || s.pspeed === '' ? 'auto' : String(s.pspeed)) === v ? ' selected' : '') + '>' + l + '</option>').join('')}</select></span>
-              </span>
-            </div>
-          </div>
+          <div class="az-schedule-name">${name}</div>
           <label class="az-schedule-toggle">
             <input type="checkbox" ${isActive ? 'checked' : ''} data-id="${s.id}"/>
             <span class="az-toggle-slider"></span>
           </label>
+        </div>
+        <div class="az-schedule-sec az-schedule-climate">
+          ${tempHtml}
+          <span class="az-sched-sel-group">
+            <span class="az-sched-sel-wrap">${modeInfo.icon}<select class="az-inline-select az-sched-select az-sched-mode" data-sid="${s.id}" title="Mode">${Object.entries(MODES).map(([v, m]) => '<option value="' + v + '"' + (parseInt(v) === s.mode ? ' selected' : '') + '>' + m.label + '</option>').join('')}</select></span>
+            <span class="az-sched-sel-wrap"><ha-icon icon="mdi:fan"></ha-icon><select class="az-inline-select az-sched-select az-sched-fan" data-sid="${s.id}" title="Fan speed">${[['auto', 'Auto'], ['1', 'Low'], ['2', 'Medium'], ['3', 'High']].map(([v, l]) => '<option value="' + v + '"' + ((s.pspeed == null || s.pspeed === '' ? 'auto' : String(s.pspeed)) === v ? ' selected' : '') + '>' + l + '</option>').join('')}</select></span>
+          </span>
+        </div>
+        <div class="az-schedule-sec az-schedule-when">
+          <div class="az-schedule-when-time"><ha-icon icon="mdi:clock-outline"></ha-icon> ${time}</div>
+          <div class="az-days">${DAY_LABELS.map((d, i) => '<span class="az-day ' + (days.includes(i) ? 'az-day-on' : 'az-day-off') + '">' + d + '</span>').join('')}</div>
+        </div>
+        <div class="az-schedule-sec az-schedule-foot">
+          <div class="az-schedule-foot-info">${badgesHtml}${deviceHtml}</div>
           <div class="az-schedule-actions">
             <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-edit" data-id="${s.id}" title="Edit"><ha-icon icon="mdi:pencil" style="--mdc-icon-size: 18px;"></ha-icon></button>
             <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-dup" data-id="${s.id}" title="Duplicate"><ha-icon icon="mdi:content-copy" style="--mdc-icon-size: 18px;"></ha-icon></button>
             <button class="az-btn az-btn-danger az-btn-icon az-btn-sm az-del" data-id="${s.id}" title="Delete"><ha-icon icon="mdi:delete" style="--mdc-icon-size: 18px;"></ha-icon></button>
           </div>
         </div>
-        <div class="az-days">${DAY_LABELS.map((d, i) => '<span class="az-day ' + (days.includes(i) ? 'az-day-on' : 'az-day-off') + '">' + d + '</span>').join('')}</div>
-        ${(() => { const b = []; if (s.season === 'winter') b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#3498db22;color:#3498db;padding:4px 10px;border-radius:8px;font-size:0.8em;font-weight:600;"><ha-icon icon="mdi:snowflake" style="--mdc-icon-size:14px;"></ha-icon> Winter</span>'); if (s.season === 'summer') b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#e7743422;color:#e74c3c;padding:4px 10px;border-radius:8px;font-size:0.8em;font-weight:600;"><ha-icon icon="mdi:white-balance-sunny" style="--mdc-icon-size:14px;"></ha-icon> Summer</span>'); if (s.away) b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#f39c1222;color:#f39c12;padding:4px 10px;border-radius:8px;font-size:0.8em;font-weight:600;"><ha-icon icon="mdi:airplane" style="--mdc-icon-size:14px;"></ha-icon> Away</span>'); return b.length ? '<div style="display:flex;gap:8px;padding:0 24px 8px;flex-wrap:wrap;">' + b.join('') + '</div>' : ''; })()}
-        ${deviceCount ? '<div class="az-devices" style="display:flex; align-items:center; gap:4px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="' + deviceNamesStr + '"><ha-icon icon="mdi:map-marker-outline" style="--mdc-icon-size: 16px; flex-shrink: 0;"></ha-icon> <span style="overflow: hidden; text-overflow: ellipsis;">' + deviceNamesStr + '</span></div>' : ''}
       `;
 
       el.querySelector('.az-edit').addEventListener('click', () => this._openEditor(s));
