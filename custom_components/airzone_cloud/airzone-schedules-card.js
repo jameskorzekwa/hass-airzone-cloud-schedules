@@ -643,19 +643,56 @@ class AirzoneSchedulesCard extends HTMLElement {
 
     if (!climateEntities.length) {
       container.innerHTML = '<div class="az-empty"><div class="az-empty-icon"><ha-icon icon="mdi:home-thermometer-outline" style="--mdc-icon-size: 48px;"></ha-icon></div>No Airzone zones found</div>';
+      this._zoneSig = null;
       return;
     }
 
-    // Reuse existing card elements when the zone set is unchanged so the
-    // hovered card is never destroyed/recreated (which would drop and
-    // replay its :hover lift/border). Only a structural change rebuilds.
-    const wantedIds = climateEntities.map(z => z.entity_id);
-    const existingCards = Array.from(container.querySelectorAll(':scope > .az-zone'));
-    const sameZoneSet = existingCards.length === wantedIds.length
-      && existingCards.every((e, i) => e.dataset.entity === wantedIds[i]);
-    if (!sameZoneSet) container.innerHTML = '';
-    let _zi = 0;
-    for (const zone of climateEntities) {
+    // Group zones into collapsible On / Off sections (Off collapsed by
+    // default), mirroring the Schedules page.
+    const offSet = new Set(climateEntities.filter(z => (z.state || 'off') === 'off').map(z => z.entity_id));
+    const onZones = climateEntities.filter(z => !offSet.has(z.entity_id));
+    const offZones = climateEntities.filter(z => offSet.has(z.entity_id));
+    const ordered = [...onZones, ...offZones];
+    // Reuse existing card elements when the layout (zones + on/off
+    // membership + order) is unchanged so the hovered card is never
+    // destroyed/recreated (which would drop/replay its :hover). A zone
+    // toggling on/off changes membership -> rebuild (like schedules).
+    const wantedSig = ordered.map(z => (offSet.has(z.entity_id) ? 'off|' : 'on|') + z.entity_id).join(',');
+    const reuse = this._zoneSig === wantedSig && !!container.querySelector('.az-zone');
+    if (!this._groupOpen) this._groupOpen = { enabled: true, disabled: false };
+    if (!reuse) {
+      container.innerHTML = '';
+      this._zoneGrids = {};
+      const mkGroup = (zones, label, key, defOpen) => {
+        if (!zones.length) return;
+        const open = this._groupOpen[key] !== undefined ? this._groupOpen[key] : defOpen;
+        const details = document.createElement('details');
+        if (open) details.setAttribute('open', '');
+        details.style.cssText = 'margin-bottom:8px; grid-column: 1 / -1;';
+        const summary = document.createElement('summary');
+        summary.style.cssText = 'list-style:none; display:flex; align-items:center; gap:8px; padding:10px 4px; cursor:pointer; font-weight:600; font-size:0.95em; color:var(--az-text2); user-select:none;';
+        summary.innerHTML = `<ha-icon icon="mdi:chevron-right" class="az-group-chevron" style="--mdc-icon-size:18px; transition:transform 0.2s;"></ha-icon>${label} <span style="margin-left:4px; font-weight:400; font-size:0.9em; opacity:0.7;">(${zones.length})</span>`;
+        details.appendChild(summary);
+        const grid = document.createElement('div');
+        grid.className = 'az-schedule-group';
+        details.appendChild(grid);
+        const updateChevron = () => {
+          const icon = summary.querySelector('.az-group-chevron');
+          if (icon) icon.style.transform = details.open ? 'rotate(90deg)' : '';
+        };
+        details.addEventListener('toggle', () => {
+          this._groupOpen[key] = details.open;
+          updateChevron();
+        });
+        updateChevron();
+        container.appendChild(details);
+        this._zoneGrids[key] = grid;
+      };
+      mkGroup(onZones, 'On', 'zonesOn', true);
+      mkGroup(offZones, 'Off', 'zonesOff', false);
+      this._zoneSig = wantedSig;
+    }
+    for (const zone of ordered) {
       const a = zone.attributes;
       const name = a.friendly_name || zone.entity_id;
       const currentTemp = a.current_temperature;
@@ -693,10 +730,9 @@ class AirzoneSchedulesCard extends HTMLElement {
       const modeInfo = HVAC_MODE_MAP[hvacMode] || HVAC_MODE_MAP.off;
       const actionInfo = HVAC_ACTION_MAP[hvacAction] || HVAC_ACTION_MAP.off;
 
-      let el;
-      if (sameZoneSet) {
-        el = existingCards[_zi++];
-      } else {
+      let el = reuse ? container.querySelector('.az-zone[data-entity="' + zone.entity_id + '"]') : null;
+      const _freshEl = !el;
+      if (!el) {
         el = document.createElement('div');
         el.className = 'az-zone';
         el.dataset.entity = zone.entity_id;
@@ -843,7 +879,10 @@ class AirzoneSchedulesCard extends HTMLElement {
         });
       }
 
-      if (!sameZoneSet) container.appendChild(el);
+      if (_freshEl) {
+        const _g = this._zoneGrids && this._zoneGrids[offSet.has(zone.entity_id) ? 'zonesOff' : 'zonesOn'];
+        if (_g) _g.appendChild(el);
+      }
     }
   }
 
