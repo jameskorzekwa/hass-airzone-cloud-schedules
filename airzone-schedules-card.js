@@ -1146,7 +1146,7 @@ class AirzoneSchedulesCard extends HTMLElement {
       });
       const sc = (this._schedules || []).find(x => x.id === schedId);
       if (sc) sc.enabled = !!active;
-      this._patchScheduleCard(schedId);
+      // The toggle already reflects the new state — no rebuild needed.
     } catch (err) {
       this._toast('Error: ' + (err.message || 'Check console'), true);
       this._loadSchedules();
@@ -1163,7 +1163,14 @@ class AirzoneSchedulesCard extends HTMLElement {
       });
       const sc = (this._schedules || []).find(x => x.id === id);
       if (sc) Object.assign(sc, changes);
-      this._patchScheduleCard(id);
+      // Only a mode change alters the card structure (dual heat/cool vs
+      // single setpoint), so rebuild just that one card then. For
+      // setpoint / day / fan the optimistic DOM + merged memory already
+      // match — skip the rebuild so the buttons (and their :hover) are
+      // never recreated and successive clicks stay instant.
+      if (changes && Object.prototype.hasOwnProperty.call(changes, 'mode')) {
+        this._patchScheduleCard(id);
+      }
     } catch (err) {
       this._toast('Error: ' + (err.message || 'Check console'), true);
       this._loadSchedules();
@@ -1228,7 +1235,10 @@ class AirzoneSchedulesCard extends HTMLElement {
     }
     p[dkey] = newC;
     this._schedSpPending[sid] = p;
-    const valEl = el.querySelector('.az-sched-sp-val[data-kind="' + kind + '"]');
+    // Find the value on the live card by id (the captured `el` can be a
+    // stale wrapper if the card was rebuilt by a prior mode-change patch).
+    const liveCard = this.querySelector('.az-schedule[data-sid="' + sid + '"]') || el;
+    const valEl = liveCard.querySelector('.az-sched-sp-val[data-kind="' + kind + '"]');
     if (valEl) valEl.textContent = this._displayTemp(newC);
 
     clearTimeout(this._schedSpTimers[sid]);
