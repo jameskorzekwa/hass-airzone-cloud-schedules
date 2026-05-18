@@ -219,6 +219,7 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-zone-name { font-weight:600; font-size:1.2em; color:var(--az-text); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .az-zone-action { font-size:0.78em; font-weight:600; padding:4px 10px; border-radius:8px; display:inline-flex; align-items:center; gap:4px; }
         .az-zone-temps { display:flex; align-items:flex-end; gap:30px; flex-wrap:wrap; padding-top:14px; border-top:1px solid var(--az-border); }
+        .az-zone-hc { display:flex; align-items:flex-end; gap:30px; flex-wrap:nowrap; }
         .az-zone-cell { display:flex; flex-direction:column; align-items:center; gap:4px; }
         .az-zone-current-val { font-size:2.1em; font-weight:300; color:var(--az-text); letter-spacing:-1px; line-height:1; }
         .az-zone-sp-val { font-size:1.5em; font-weight:700; line-height:1; display:flex; align-items:center; gap:5px; }
@@ -261,7 +262,7 @@ class AirzoneSchedulesCard extends HTMLElement {
           .az-devices { padding: 0 16px 16px; }
           .az-sched-select { width: 124px; }
           .az-zone { padding: 16px; }
-          .az-zone-temps { gap: 16px; }
+          .az-zone-temps, .az-zone-hc { gap: 16px; }
           .az-editor-body { padding: 20px; }
           .az-editor-header { padding: 20px; }
           .az-editor-footer { padding: 20px; }
@@ -277,6 +278,7 @@ class AirzoneSchedulesCard extends HTMLElement {
           .az-tab { padding: 9px 12px; font-size: 0.9em; }
           .az-zone-name { font-size: 1.05em; }
           .az-zone-temps { gap: 12px; justify-content: space-between; }
+          .az-zone-hc { gap: 12px; }
           .az-zone-current-val { font-size: 1.9em; }
           .az-schedule-meta { gap: 8px 12px; font-size: 0.9em; }
           .az-sched-select { width: 110px; }
@@ -642,21 +644,23 @@ class AirzoneSchedulesCard extends HTMLElement {
             <div class="az-zone-current-label">Power</div>
           </div>
           ` : isDual ? `
-          <div class="az-zone-cell" style="gap:7px;">
-            <div class="az-zone-target">
-              <button class="az-zone-temp-btn az-zone-sp-btn" data-entity="${zone.entity_id}" data-kind="heat" data-dir="down" title="Lower heat setpoint"><ha-icon icon="mdi:minus" style="--mdc-icon-size:16px;"></ha-icon></button>
-              <div class="az-zone-target-val" style="color:#e74c3c;"><ha-icon icon="mdi:fire" style="--mdc-icon-size:16px;"></ha-icon> ${tLow}<span class="az-zone-sp-unit">${uLabel}</span></div>
-              <button class="az-zone-temp-btn az-zone-sp-btn" data-entity="${zone.entity_id}" data-kind="heat" data-dir="up" title="Raise heat setpoint"><ha-icon icon="mdi:plus" style="--mdc-icon-size:16px;"></ha-icon></button>
+          <div class="az-zone-hc">
+            <div class="az-zone-cell" style="gap:7px;">
+              <div class="az-zone-target">
+                <button class="az-zone-temp-btn az-zone-sp-btn" data-entity="${zone.entity_id}" data-kind="heat" data-dir="down" title="Lower heat setpoint"><ha-icon icon="mdi:minus" style="--mdc-icon-size:16px;"></ha-icon></button>
+                <div class="az-zone-target-val" style="color:#e74c3c;"><ha-icon icon="mdi:fire" style="--mdc-icon-size:16px;"></ha-icon> ${tLow}<span class="az-zone-sp-unit">${uLabel}</span></div>
+                <button class="az-zone-temp-btn az-zone-sp-btn" data-entity="${zone.entity_id}" data-kind="heat" data-dir="up" title="Raise heat setpoint"><ha-icon icon="mdi:plus" style="--mdc-icon-size:16px;"></ha-icon></button>
+              </div>
+              <div class="az-zone-current-label">Heat</div>
             </div>
-            <div class="az-zone-current-label">Heat</div>
-          </div>
-          <div class="az-zone-cell" style="gap:7px;">
-            <div class="az-zone-target">
-              <button class="az-zone-temp-btn az-zone-sp-btn" data-entity="${zone.entity_id}" data-kind="cool" data-dir="down" title="Lower cool setpoint"><ha-icon icon="mdi:minus" style="--mdc-icon-size:16px;"></ha-icon></button>
-              <div class="az-zone-target-val" style="color:#3498db;"><ha-icon icon="mdi:snowflake" style="--mdc-icon-size:16px;"></ha-icon> ${tHigh}<span class="az-zone-sp-unit">${uLabel}</span></div>
-              <button class="az-zone-temp-btn az-zone-sp-btn" data-entity="${zone.entity_id}" data-kind="cool" data-dir="up" title="Raise cool setpoint"><ha-icon icon="mdi:plus" style="--mdc-icon-size:16px;"></ha-icon></button>
+            <div class="az-zone-cell" style="gap:7px;">
+              <div class="az-zone-target">
+                <button class="az-zone-temp-btn az-zone-sp-btn" data-entity="${zone.entity_id}" data-kind="cool" data-dir="down" title="Lower cool setpoint"><ha-icon icon="mdi:minus" style="--mdc-icon-size:16px;"></ha-icon></button>
+                <div class="az-zone-target-val" style="color:#3498db;"><ha-icon icon="mdi:snowflake" style="--mdc-icon-size:16px;"></ha-icon> ${tHigh}<span class="az-zone-sp-unit">${uLabel}</span></div>
+                <button class="az-zone-temp-btn az-zone-sp-btn" data-entity="${zone.entity_id}" data-kind="cool" data-dir="up" title="Raise cool setpoint"><ha-icon icon="mdi:plus" style="--mdc-icon-size:16px;"></ha-icon></button>
+              </div>
+              <div class="az-zone-current-label">Cool</div>
             </div>
-            <div class="az-zone-current-label">Cool</div>
           </div>
           ` : targetTemp != null ? `
           <div class="az-zone-cell" style="gap:7px;">
