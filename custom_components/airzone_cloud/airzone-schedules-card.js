@@ -171,7 +171,8 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-schedule-toggle input:checked + .az-toggle-slider:before { transform:translateX(24px); }
         .az-schedule-actions { display:flex; gap:8px; flex-shrink:0; }
         .az-days { display:flex; gap:6px; }
-        .az-day { flex: 1; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:0.85em; font-weight:700; text-transform: uppercase; letter-spacing: 0.5px; }
+        .az-day { flex: 1; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:0.85em; font-weight:700; text-transform: uppercase; letter-spacing: 0.5px; cursor:pointer; user-select:none; transition:all 0.15s; }
+        .az-day:hover { filter:brightness(1.12); transform:translateY(-1px); }
         .az-day-on { background:var(--az-primary); color:var(--text-primary-color, white); box-shadow: 0 4px 10px rgba(74, 144, 217, 0.3); }
         .az-day-off { background:var(--az-surface); color:var(--az-text2); border: 1px solid var(--az-border); }
         .az-loading { text-align:center; padding:64px; color:var(--az-text2); grid-column: 1 / -1; font-size: 1.2em; }
@@ -223,10 +224,10 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-zone-icon ha-icon { --mdc-icon-size: 22px; }
         .az-zone-name { font-weight:600; font-size:1.2em; color:var(--az-text); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .az-zone-action { font-size:0.78em; font-weight:600; padding:4px 10px; border-radius:8px; display:inline-flex; align-items:center; gap:4px; }
-        .az-zone-temps { display:flex; align-items:flex-end; gap:30px; flex-wrap:wrap; padding-top:14px; border-top:1px solid var(--az-border); }
-        .az-zone-hc { display:flex; align-items:flex-end; gap:30px; flex-wrap:nowrap; }
+        .az-zone-temps { display:flex; flex-direction:column; align-items:center; gap:16px; padding-top:14px; border-top:1px solid var(--az-border); }
+        .az-zone-hc { display:flex; align-items:flex-end; justify-content:center; gap:30px; flex-wrap:nowrap; }
         .az-zone-cell { display:flex; flex-direction:column; align-items:center; gap:4px; }
-        .az-zone-current-val { font-size:2.1em; font-weight:300; color:var(--az-text); letter-spacing:-1px; line-height:1; }
+        .az-zone-current-val { font-size:2.8em; font-weight:300; color:var(--az-text); letter-spacing:-1px; line-height:1; }
         .az-zone-sp-val { font-size:1.5em; font-weight:700; line-height:1; display:flex; align-items:center; gap:5px; }
         .az-zone-sp-unit { font-size:0.45em; color:var(--az-text2); font-weight:600; }
         .az-zone-current-label { font-size:0.68em; color:var(--az-text2); text-transform:uppercase; font-weight:700; letter-spacing:0.6px; }
@@ -245,7 +246,7 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-sched-sel-wrap { display:flex; align-items:center; gap:6px; min-width:0; }
         .az-sched-sel-wrap ha-icon { --mdc-icon-size:16px; flex-shrink:0; }
         .az-sched-select { width:150px; max-width:none; min-width:0; flex-shrink:1; }
-        .az-zone-stats { display:flex; gap:18px; flex-wrap:wrap; font-size:0.82em; color:var(--az-text2); font-weight:600; padding-top:12px; border-top:1px solid var(--az-border); }
+        .az-zone-stats { display:flex; justify-content:center; gap:18px; flex-wrap:wrap; font-size:0.82em; color:var(--az-text2); font-weight:600; padding-top:12px; border-top:1px solid var(--az-border); }
         .az-zone-stat { display:flex; align-items:center; gap:4px; }
         .az-zone-stat ha-icon { --mdc-icon-size: 15px; }
 
@@ -278,9 +279,9 @@ class AirzoneSchedulesCard extends HTMLElement {
           .az-btn { padding: 8px 12px; font-size: 0.9em; }
           .az-tab { padding: 9px 12px; font-size: 0.9em; }
           .az-zone-name { font-size: 1.05em; }
-          .az-zone-temps { gap: 12px; justify-content: space-between; }
-          .az-zone-hc { gap: 12px; }
-          .az-zone-current-val { font-size: 1.9em; }
+          .az-zone-temps { gap: 12px; }
+          .az-zone-hc { gap: 16px; }
+          .az-zone-current-val { font-size: 2.3em; }
           .az-schedule-climate { gap: 10px 12px; }
           .az-sched-select { width: 110px; }
           .az-days { gap: 4px; }
@@ -497,7 +498,7 @@ class AirzoneSchedulesCard extends HTMLElement {
         </div>
         <div class="az-schedule-sec az-schedule-when">
           <div class="az-schedule-when-time"><ha-icon icon="mdi:clock-outline"></ha-icon> ${time}</div>
-          <div class="az-days">${DAY_LABELS.map((d, i) => '<span class="az-day ' + (days.includes(i) ? 'az-day-on' : 'az-day-off') + '">' + d + '</span>').join('')}</div>
+          <div class="az-days">${DAY_LABELS.map((d, i) => '<span class="az-day ' + (days.includes(i) ? 'az-day-on' : 'az-day-off') + '" data-sid="' + s.id + '" data-day="' + i + '" title="Toggle ' + d + '">' + d + '</span>').join('')}</div>
         </div>
         <div class="az-schedule-sec az-schedule-foot">
           <div class="az-schedule-foot-info">${badgesHtml}${deviceHtml}</div>
@@ -515,6 +516,9 @@ class AirzoneSchedulesCard extends HTMLElement {
       el.querySelector('input[type=checkbox]').addEventListener('change', (e) => this._toggleSchedule(s, e.target.checked));
       el.querySelectorAll('.az-sched-sp-btn').forEach((btn) => {
         btn.addEventListener('click', () => this._bumpScheduleSetpoint(s, btn.dataset.kind, btn.dataset.dir, el));
+      });
+      el.querySelectorAll('.az-day').forEach((chip) => {
+        chip.addEventListener('click', () => this._toggleScheduleDay(s, parseInt(chip.dataset.day), chip));
       });
       const schedModeSel = el.querySelector('.az-sched-mode');
       if (schedModeSel) {
@@ -1083,6 +1087,32 @@ class AirzoneSchedulesCard extends HTMLElement {
       this._toast('Error: ' + (err.message || 'Check console'), true);
       this._loadSchedules();
     }
+  }
+
+  // Inline day toggle on the schedule card. Optimistically flips the chip
+  // and debounces one ha_schedule_update so rapid multi-day edits coalesce.
+  _toggleScheduleDay(schedule, dayIdx, chipEl) {
+    const sid = schedule.id;
+    if (!sid || isNaN(dayIdx)) return;
+    this._schedDaysPending = this._schedDaysPending || {};
+    this._schedDaysTimers = this._schedDaysTimers || {};
+    let days = this._schedDaysPending[sid]
+      ? this._schedDaysPending[sid].slice()
+      : (Array.isArray(schedule.days) ? schedule.days.slice() : []);
+    const on = days.includes(dayIdx);
+    days = on ? days.filter(d => d !== dayIdx) : days.concat(dayIdx);
+    days.sort((a, b) => a - b);
+    this._schedDaysPending[sid] = days;
+    chipEl.classList.toggle('az-day-on', !on);
+    chipEl.classList.toggle('az-day-off', on);
+
+    clearTimeout(this._schedDaysTimers[sid]);
+    this._schedDaysTimers[sid] = setTimeout(() => {
+      const pend = this._schedDaysPending[sid];
+      delete this._schedDaysPending[sid];
+      delete this._schedDaysTimers[sid];
+      if (pend) this._updateSchedule(sid, { days: pend }, 'Days updated');
+    }, 700);
   }
 
   // Inline schedule-card setpoint stepper. Steps the displayed value (1°F /
