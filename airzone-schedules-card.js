@@ -591,6 +591,24 @@ class AirzoneSchedulesCard extends HTMLElement {
     if (disabled.length) list.appendChild(buildGroup(disabled, 'Disabled', this._groupOpen.disabled, 'disabled'));
   }
 
+  // Optimistically set a zone setpoint: show the new value immediately
+  // (via the _zoneOpt override consulted in _renderZones), call the
+  // service, and on failure clear the override and revert the UI.
+  _zoneSetTemp(eid, data) {
+    this._zoneOpt = this._zoneOpt || {};
+    this._zoneOpt[eid] = Object.assign({}, data, { until: Date.now() + 15000 });
+    this._renderZones();
+    const p = this._hass.callService('climate', 'set_temperature',
+      Object.assign({ entity_id: eid }, data));
+    if (p && typeof p.catch === 'function') {
+      p.catch((err) => {
+        if (this._zoneOpt) delete this._zoneOpt[eid];
+        this._renderZones();
+        this._toast('Error: ' + ((err && err.message) || 'could not set temperature'), true);
+      });
+    }
+  }
+
   _renderZones() {
     const container = this.querySelector('#az-tab-zones');
     if (!container || !this._hass) return;
@@ -628,7 +646,7 @@ class AirzoneSchedulesCard extends HTMLElement {
       const a = zone.attributes;
       const name = a.friendly_name || zone.entity_id;
       const currentTemp = a.current_temperature;
-      const targetTemp = a.temperature;
+      let targetTemp = a.temperature;
       const humidity = a.current_humidity;
       const hvacMode = zone.state || 'off';
       const hvacAction = a.hvac_action || 'off';
@@ -638,9 +656,25 @@ class AirzoneSchedulesCard extends HTMLElement {
       const isOff = hvacMode === 'off';
       // Dual-setpoint (auto / double_sp) zones expose target_temp_low/high
       // instead of a single temperature.
-      const tLow = a.target_temp_low;
-      const tHigh = a.target_temp_high;
+      let tLow = a.target_temp_low;
+      let tHigh = a.target_temp_high;
       const isDual = hvacMode === 'heat_cool' && tLow != null && tHigh != null;
+      // Optimistic setpoint override: show the just-clicked value instantly
+      // and keep it until the live state catches up or the window expires
+      // (Airzone's cloud round-trip is slow). Cleared/ reverted on failure.
+      const _zo = this._zoneOpt && this._zoneOpt[zone.entity_id];
+      if (_zo) {
+        const landed = (_zo.temperature == null || a.temperature === _zo.temperature)
+          && (_zo.target_temp_low == null || a.target_temp_low === _zo.target_temp_low)
+          && (_zo.target_temp_high == null || a.target_temp_high === _zo.target_temp_high);
+        if (Date.now() > _zo.until || landed) {
+          delete this._zoneOpt[zone.entity_id];
+        } else {
+          if (_zo.temperature != null) targetTemp = _zo.temperature;
+          if (_zo.target_temp_low != null) tLow = _zo.target_temp_low;
+          if (_zo.target_temp_high != null) tHigh = _zo.target_temp_high;
+        }
+      }
       const uLabel = this._haUnitLabel();
 
       const modeInfo = HVAC_MODE_MAP[hvacMode] || HVAC_MODE_MAP.off;
@@ -722,22 +756,25 @@ class AirzoneSchedulesCard extends HTMLElement {
       // Temp buttons
       const downBtn = el.querySelector('.az-zone-temp-down');
       const upBtn = el.querySelector('.az-zone-temp-up');
+      const _curSingle = (eid) => {
+        const op = this._zoneOpt && this._zoneOpt[eid];
+        return (op && op.temperature != null ? op.temperature
+          : this._hass.states[eid]?.attributes?.temperature) ?? targetTemp ?? 21;
+      };
       if (downBtn) {
         downBtn.addEventListener('click', () => {
-          const haFah = this._haUnitLabel() === '°F';
-          const step = haFah ? 1 : 0.5;
-          const curTarget = this._hass.states[zone.entity_id]?.attributes?.temperature || targetTemp || 21;
-          const newTemp = Math.max(parseFloat(downBtn.dataset.min), curTarget - step);
-          this._hass.callService('climate', 'set_temperature', { entity_id: zone.entity_id, temperature: newTemp });
+          const step = this._haUnitLabel() === '°F' ? 1 : 0.5;
+          const eid = zone.entity_id;
+          const newTemp = Math.max(parseFloat(downBtn.dataset.min), _curSingle(eid) - step);
+          this._zoneSetTemp(eid, { temperature: newTemp });
         });
       }
       if (upBtn) {
         upBtn.addEventListener('click', () => {
-          const haFah = this._haUnitLabel() === '°F';
-          const step = haFah ? 1 : 0.5;
-          const curTarget = this._hass.states[zone.entity_id]?.attributes?.temperature || targetTemp || 21;
-          const newTemp = Math.min(parseFloat(upBtn.dataset.max), curTarget + step);
-          this._hass.callService('climate', 'set_temperature', { entity_id: zone.entity_id, temperature: newTemp });
+          const step = this._haUnitLabel() === '°F' ? 1 : 0.5;
+          const eid = zone.entity_id;
+          const newTemp = Math.min(parseFloat(upBtn.dataset.max), _curSingle(eid) + step);
+          this._zoneSetTemp(eid, { temperature: newTemp });
         });
       }
 
@@ -748,8 +785,9 @@ class AirzoneSchedulesCard extends HTMLElement {
         btn.addEventListener('click', () => {
           const eid = btn.dataset.entity;
           const a = this._hass.states[eid]?.attributes || {};
-          let low = a.target_temp_low;
-          let high = a.target_temp_high;
+          const op = this._zoneOpt && this._zoneOpt[eid];
+          let low = (op && op.target_temp_low != null) ? op.target_temp_low : a.target_temp_low;
+          let high = (op && op.target_temp_high != null) ? op.target_temp_high : a.target_temp_high;
           if (low == null || high == null) return;
           const haFah = this._haUnitLabel() === '°F';
           const step = a.target_temp_step || (haFah ? 1 : 0.5);
@@ -761,11 +799,7 @@ class AirzoneSchedulesCard extends HTMLElement {
           } else {
             high = Math.max(Math.min(maxT, high + d), low + step);
           }
-          this._hass.callService('climate', 'set_temperature', {
-            entity_id: eid,
-            target_temp_low: low,
-            target_temp_high: high,
-          });
+          this._zoneSetTemp(eid, { target_temp_low: low, target_temp_high: high });
         });
       });
 
@@ -1074,8 +1108,10 @@ class AirzoneSchedulesCard extends HTMLElement {
         type: 'call_service', domain: 'airzone_cloud', service: 'ha_schedule_update',
         service_data: { id: schedId, changes: { enabled: !!active } }, return_response: true
       });
+      const sc = (this._schedules || []).find(x => x.id === schedId);
+      if (sc) sc.enabled = !!active;
       this._toast(active ? 'Schedule enabled' : 'Schedule disabled');
-      await this._loadSchedules();
+      this._renderList();
     } catch (err) {
       this._toast('Error: ' + (err.message || 'Check console'), true);
       this._loadSchedules();
@@ -1090,8 +1126,10 @@ class AirzoneSchedulesCard extends HTMLElement {
         type: 'call_service', domain: 'airzone_cloud', service: 'ha_schedule_update',
         service_data: { id, changes }, return_response: true
       });
+      const sc = (this._schedules || []).find(x => x.id === id);
+      if (sc) Object.assign(sc, changes);
       this._toast(msg || 'Schedule updated');
-      await this._loadSchedules();
+      this._renderList();
     } catch (err) {
       this._toast('Error: ' + (err.message || 'Check console'), true);
       this._loadSchedules();
@@ -1189,8 +1227,9 @@ class AirzoneSchedulesCard extends HTMLElement {
         type: 'call_service', domain: 'airzone_cloud', service: 'ha_schedule_delete',
         service_data: { id }, return_response: true
       });
+      this._schedules = (this._schedules || []).filter(x => x.id !== id);
       this._toast('Schedule deleted');
-      this._loadSchedules();
+      this._renderList();
     } catch (err) {
       this._toast('Error: ' + (err.message || ''), true);
     }
