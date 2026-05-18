@@ -242,6 +242,15 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-sched-sp-btn:active { transform:scale(0.9); }
         .az-inline-select { border:1px solid var(--az-border); border-radius:8px; background:var(--primary-background-color, var(--az-surface)); color:var(--az-text); font-family:inherit; font-size:0.95em; font-weight:600; padding:3px 6px; cursor:pointer; outline:none; transition:border 0.2s; max-width:140px; }
         .az-inline-select:hover, .az-inline-select:focus { border-color:var(--az-primary); }
+        .az-cselect { display:inline-flex; align-items:center; justify-content:space-between; gap:4px; box-sizing:border-box; user-select:none; }
+        .az-cselect-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .az-cselect-arrow { --mdc-icon-size:16px; flex-shrink:0; color:var(--az-text2); transition:transform 0.15s; }
+        .az-cselect.open { border-color:var(--az-primary); }
+        .az-cselect.open .az-cselect-arrow { transform:rotate(180deg); }
+        .az-cselect-menu { position:fixed; z-index:10000; background:var(--card-background-color, var(--az-surface)); border:1px solid var(--az-border); border-radius:10px; box-shadow:0 8px 28px rgba(0,0,0,0.4); padding:6px; max-height:280px; overflow-y:auto; }
+        .az-cselect-opt { padding:8px 14px; border-radius:7px; font-size:0.95em; font-weight:600; color:var(--az-text); cursor:pointer; white-space:nowrap; }
+        .az-cselect-opt:hover { background:var(--az-border); }
+        .az-cselect-opt.sel { background:var(--az-primary); color:var(--text-primary-color,#fff); }
         .az-sched-sel-group { display:flex; align-items:center; flex-wrap:nowrap; min-width:0; gap:14px; }
         .az-sched-sel-wrap { display:flex; align-items:center; gap:6px; min-width:0; }
         .az-sched-sel-wrap ha-icon { --mdc-icon-size:16px; flex-shrink:0; }
@@ -492,8 +501,8 @@ class AirzoneSchedulesCard extends HTMLElement {
         <div class="az-schedule-sec az-schedule-climate">
           ${tempHtml}
           <span class="az-sched-sel-group">
-            <span class="az-sched-sel-wrap">${modeInfo.icon}<select class="az-inline-select az-sched-select az-sched-mode" data-sid="${s.id}" title="Mode">${Object.entries(MODES).map(([v, m]) => '<option value="' + v + '"' + (parseInt(v) === s.mode ? ' selected' : '') + '>' + m.label + '</option>').join('')}</select></span>
-            <span class="az-sched-sel-wrap"><ha-icon icon="mdi:fan"></ha-icon><select class="az-inline-select az-sched-select az-sched-fan" data-sid="${s.id}" title="Fan speed">${[['auto', 'Auto'], ['1', 'Low'], ['2', 'Medium'], ['3', 'High']].map(([v, l]) => '<option value="' + v + '"' + ((s.pspeed == null || s.pspeed === '' ? 'auto' : String(s.pspeed)) === v ? ' selected' : '') + '>' + l + '</option>').join('')}</select></span>
+            <span class="az-sched-sel-wrap">${modeInfo.icon}<az-select class="az-inline-select az-sched-select az-sched-mode" data-sid="${s.id}" title="Mode" value="${s.mode}" data-options='${JSON.stringify(Object.entries(MODES).map(([v, m]) => [v, m.label])).replace(/'/g, '&#39;')}'></az-select></span>
+            <span class="az-sched-sel-wrap"><ha-icon icon="mdi:fan"></ha-icon><az-select class="az-inline-select az-sched-select az-sched-fan" data-sid="${s.id}" title="Fan speed" value="${s.pspeed == null || s.pspeed === '' ? 'auto' : s.pspeed}" data-options='[["auto","Auto"],["1","Low"],["2","Medium"],["3","High"]]'></az-select></span>
           </span>
         </div>
         <div class="az-schedule-sec az-schedule-when">
@@ -693,9 +702,9 @@ class AirzoneSchedulesCard extends HTMLElement {
         </div>
         <div class="az-zone-stats">
           ${(a.fan_modes && a.fan_modes.length)
-            ? '<span class="az-zone-stat"><ha-icon icon="mdi:fan"></ha-icon> <select class="az-inline-select az-zone-fan" data-entity="' + zone.entity_id + '" title="Fan speed">' + a.fan_modes.map(f => '<option value="' + f + '"' + (f === fanMode ? ' selected' : '') + '>' + f.charAt(0).toUpperCase() + f.slice(1) + '</option>').join('') + '</select></span>'
+            ? '<span class="az-zone-stat"><ha-icon icon="mdi:fan"></ha-icon> <az-select class="az-inline-select az-zone-fan" data-entity="' + zone.entity_id + '" title="Fan speed" value="' + (fanMode || '') + '" data-options=\'' + JSON.stringify(a.fan_modes.map(f => [f, f.charAt(0).toUpperCase() + f.slice(1)])).replace(/'/g, '&#39;') + '\'></az-select></span>'
             : (fanMode ? '<span class="az-zone-stat"><ha-icon icon="mdi:fan"></ha-icon> ' + fanMode + '</span>' : '')}
-          <span class="az-zone-stat"><ha-icon icon="mdi:${modeInfo.icon.replace('mdi:', '')}"></ha-icon> <select class="az-inline-select az-zone-mode" data-entity="${zone.entity_id}" title="Mode">${(a.hvac_modes && a.hvac_modes.length ? a.hvac_modes : [hvacMode]).map(m => '<option value="' + m + '"' + (m === hvacMode ? ' selected' : '') + '>' + ((HVAC_MODE_MAP[m] && HVAC_MODE_MAP[m].label) || m) + '</option>').join('')}</select></span>
+          <span class="az-zone-stat"><ha-icon icon="mdi:${modeInfo.icon.replace('mdi:', '')}"></ha-icon> <az-select class="az-inline-select az-zone-mode" data-entity="${zone.entity_id}" title="Mode" value="${hvacMode}" data-options='${JSON.stringify((a.hvac_modes && a.hvac_modes.length ? a.hvac_modes : [hvacMode]).map(m => [m, (HVAC_MODE_MAP[m] && HVAC_MODE_MAP[m].label) || m])).replace(/'/g, '&#39;')}'></az-select></span>
           ${humidity != null ? '<span class="az-zone-stat"><ha-icon icon="mdi:water-percent"></ha-icon> ' + humidity + '%</span>' : ''}
         </div>
       `;
@@ -1226,6 +1235,105 @@ class AirzoneSchedulesCard extends HTMLElement {
 
   getCardSize() { return 4; }
 }
+
+// Lightweight custom dropdown used instead of native <select>. Native
+// <select> popups render in the wrong place on some Android WebViews
+// (e.g. Fire tablet: the list flashes top-right then jumps under the
+// control). This renders its own menu in a body-level portal positioned
+// with fixed coords, so it is never clipped or mispositioned. It is a
+// drop-in <select> replacement: exposes `.value` and fires `change`.
+class AzSelect extends HTMLElement {
+  connectedCallback() {
+    if (this._init) return;
+    this._init = true;
+    this.classList.add('az-cselect');
+    this.setAttribute('role', 'button');
+    if (!this.hasAttribute('tabindex')) this.tabIndex = 0;
+    try { this._options = JSON.parse(this.dataset.options || '[]'); } catch (e) { this._options = []; }
+    this._render();
+    this.addEventListener('click', (e) => { e.stopPropagation(); this._toggle(); });
+    this.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this._toggle(); }
+      else if (e.key === 'Escape') this._close();
+    });
+  }
+  disconnectedCallback() { this._close(); }
+  get value() { return this.getAttribute('value'); }
+  set value(v) { this.setAttribute('value', v); this._render(); }
+  _label() {
+    const o = (this._options || []).find(x => String(x[0]) === String(this.value));
+    return o ? o[1] : (this.value || '');
+  }
+  _render() {
+    this.innerHTML = '<span class="az-cselect-label">' + this._label() +
+      '</span><ha-icon class="az-cselect-arrow" icon="mdi:chevron-down"></ha-icon>';
+  }
+  _toggle() { this._menu ? this._close() : this._open(); }
+  _open() {
+    this._close();
+    const menu = document.createElement('div');
+    menu.className = 'az-cselect-menu';
+    // Self-contained inline styles: the menu is portalled to <body> to
+    // avoid any ancestor clipping/stacking in HA's panel hierarchy, so the
+    // card's scoped CSS does not reach it.
+    Object.assign(menu.style, {
+      position: 'fixed', zIndex: '2147483000', boxSizing: 'border-box',
+      background: 'var(--card-background-color, #1c1c1c)',
+      color: 'var(--primary-text-color, #e0e0e0)',
+      border: '1px solid var(--divider-color, rgba(200,200,200,0.25))',
+      borderRadius: '10px', boxShadow: '0 8px 28px rgba(0,0,0,0.5)',
+      padding: '6px', maxHeight: '280px', overflowY: 'auto',
+      fontFamily: 'inherit', fontSize: '14px', fontWeight: '600',
+    });
+    const primCol = 'var(--primary-color, #4a90d9)';
+    const hovCol = 'var(--divider-color, rgba(200,200,200,0.18))';
+    (this._options || []).forEach(o => {
+      const isSel = String(o[0]) === String(this.value);
+      const opt = document.createElement('div');
+      opt.textContent = o[1];
+      opt.dataset.v = o[0];
+      Object.assign(opt.style, {
+        padding: '9px 16px', borderRadius: '7px', cursor: 'pointer',
+        whiteSpace: 'nowrap', color: isSel ? '#fff' : 'inherit',
+        background: isSel ? primCol : 'transparent',
+      });
+      opt.addEventListener('mouseenter', () => { if (!isSel) opt.style.background = hovCol; });
+      opt.addEventListener('mouseleave', () => { if (!isSel) opt.style.background = 'transparent'; });
+      opt.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const nv = opt.dataset.v;
+        const changed = String(nv) !== String(this.value);
+        this._close();
+        if (changed) { this.value = nv; this.dispatchEvent(new Event('change', { bubbles: true })); }
+      });
+      menu.appendChild(opt);
+    });
+    document.body.appendChild(menu);
+    this._menu = menu;
+    const r = this.getBoundingClientRect();
+    menu.style.minWidth = r.width + 'px';
+    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+    const mh = menu.offsetHeight;
+    menu.style.top = (r.bottom + 4 + mh > window.innerHeight && r.top - 4 - mh > 0
+      ? r.top - 4 - mh : r.bottom + 4) + 'px';
+    this._outside = (e) => { if (!menu.contains(e.target) && !this.contains(e.target)) this._close(); };
+    this._reposition = () => this._close();
+    setTimeout(() => {
+      document.addEventListener('click', this._outside, true);
+      window.addEventListener('scroll', this._reposition, true);
+      window.addEventListener('resize', this._reposition, true);
+    }, 0);
+    this.classList.add('open');
+  }
+  _close() {
+    if (this._menu) { this._menu.remove(); this._menu = null; }
+    document.removeEventListener('click', this._outside, true);
+    window.removeEventListener('scroll', this._reposition, true);
+    window.removeEventListener('resize', this._reposition, true);
+    this.classList.remove('open');
+  }
+}
+if (!customElements.get('az-select')) customElements.define('az-select', AzSelect);
 
 customElements.define('airzone-schedules-card', AirzoneSchedulesCard);
 
