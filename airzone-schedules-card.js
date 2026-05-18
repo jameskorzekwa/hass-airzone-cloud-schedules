@@ -646,7 +646,15 @@ class AirzoneSchedulesCard extends HTMLElement {
       return;
     }
 
-    container.innerHTML = '';
+    // Reuse existing card elements when the zone set is unchanged so the
+    // hovered card is never destroyed/recreated (which would drop and
+    // replay its :hover lift/border). Only a structural change rebuilds.
+    const wantedIds = climateEntities.map(z => z.entity_id);
+    const existingCards = Array.from(container.querySelectorAll(':scope > .az-zone'));
+    const sameZoneSet = existingCards.length === wantedIds.length
+      && existingCards.every((e, i) => e.dataset.entity === wantedIds[i]);
+    if (!sameZoneSet) container.innerHTML = '';
+    let _zi = 0;
     for (const zone of climateEntities) {
       const a = zone.attributes;
       const name = a.friendly_name || zone.entity_id;
@@ -685,8 +693,14 @@ class AirzoneSchedulesCard extends HTMLElement {
       const modeInfo = HVAC_MODE_MAP[hvacMode] || HVAC_MODE_MAP.off;
       const actionInfo = HVAC_ACTION_MAP[hvacAction] || HVAC_ACTION_MAP.off;
 
-      const el = document.createElement('div');
-      el.className = 'az-zone';
+      let el;
+      if (sameZoneSet) {
+        el = existingCards[_zi++];
+      } else {
+        el = document.createElement('div');
+        el.className = 'az-zone';
+        el.dataset.entity = zone.entity_id;
+      }
       el.innerHTML = `
         <div class="az-zone-header">
           <div class="az-zone-icon" style="background:${modeInfo.color}22; color:${modeInfo.color}">
@@ -829,7 +843,7 @@ class AirzoneSchedulesCard extends HTMLElement {
         });
       }
 
-      container.appendChild(el);
+      if (!sameZoneSet) container.appendChild(el);
     }
   }
 
@@ -1104,13 +1118,16 @@ class AirzoneSchedulesCard extends HTMLElement {
   // setpoints, missed-transition catch-up) is owned entirely by the integration's
   // AirzoneScheduler (server-side). The card only does CRUD on the HA store.
 
-  // Rebuild only the one changed card in place — no list rebuild / spinner,
-  // other cards untouched.
+  // Refresh only the one changed card WITHOUT replacing its element, so the
+  // hovered card keeps its :hover state (no drop/raise + border flicker).
+  // Build a fresh card off-DOM and move its children (listeners attached to
+  // them are preserved) into the existing .az-schedule element.
   _patchScheduleCard(id) {
     const s = (this._schedules || []).find(x => x.id === id);
     const oldEl = this.querySelector('.az-schedule[data-sid="' + id + '"]');
     if (s && oldEl && typeof this._buildScheduleCard === 'function') {
-      oldEl.replaceWith(this._buildScheduleCard(s));
+      const fresh = this._buildScheduleCard(s);
+      oldEl.replaceChildren(...Array.from(fresh.childNodes));
     } else {
       this._renderList();
     }
