@@ -641,11 +641,11 @@ class AirzoneSchedulesCard extends HTMLElement {
           ` : ''}
         </div>
         <div class="az-zone-stats">
-          ${humidity != null ? '<span class="az-zone-stat"><ha-icon icon="mdi:water-percent"></ha-icon> ' + humidity + '%</span>' : ''}
           ${(a.fan_modes && a.fan_modes.length)
             ? '<span class="az-zone-stat"><ha-icon icon="mdi:fan"></ha-icon> <select class="az-inline-select az-zone-fan" data-entity="' + zone.entity_id + '" title="Fan speed">' + a.fan_modes.map(f => '<option value="' + f + '"' + (f === fanMode ? ' selected' : '') + '>' + f.charAt(0).toUpperCase() + f.slice(1) + '</option>').join('') + '</select></span>'
             : (fanMode ? '<span class="az-zone-stat"><ha-icon icon="mdi:fan"></ha-icon> ' + fanMode + '</span>' : '')}
           <span class="az-zone-stat"><ha-icon icon="mdi:${modeInfo.icon.replace('mdi:', '')}"></ha-icon> <select class="az-inline-select az-zone-mode" data-entity="${zone.entity_id}" title="Mode">${(a.hvac_modes && a.hvac_modes.length ? a.hvac_modes : [hvacMode]).map(m => '<option value="' + m + '"' + (m === hvacMode ? ' selected' : '') + '>' + ((HVAC_MODE_MAP[m] && HVAC_MODE_MAP[m].label) || m) + '</option>').join('')}</select></span>
+          ${humidity != null ? '<span class="az-zone-stat"><ha-icon icon="mdi:water-percent"></ha-icon> ' + humidity + '%</span>' : ''}
         </div>
       `;
 
