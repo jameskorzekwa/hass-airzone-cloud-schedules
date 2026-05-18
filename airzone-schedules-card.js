@@ -236,6 +236,9 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-sched-sp-btn:active { transform:scale(0.9); }
         .az-inline-select { border:1px solid var(--az-border); border-radius:8px; background:var(--primary-background-color, var(--az-surface)); color:var(--az-text); font-family:inherit; font-size:0.95em; font-weight:600; padding:3px 6px; cursor:pointer; outline:none; transition:border 0.2s; max-width:140px; }
         .az-inline-select:hover, .az-inline-select:focus { border-color:var(--az-primary); }
+        .az-sched-sel-wrap { display:flex; align-items:center; gap:6px; }
+        .az-sched-sel-wrap ha-icon { --mdc-icon-size:16px; flex-shrink:0; }
+        .az-sched-select { width:150px; max-width:none; flex-shrink:0; }
         .az-zone-stats { display:flex; gap:18px; flex-wrap:wrap; font-size:0.82em; color:var(--az-text2); font-weight:600; padding-top:12px; border-top:1px solid var(--az-border); }
         .az-zone-stat { display:flex; align-items:center; gap:4px; }
         .az-zone-stat ha-icon { --mdc-icon-size: 15px; }
@@ -442,8 +445,8 @@ class AirzoneSchedulesCard extends HTMLElement {
             <div class="az-schedule-meta">
               <span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:clock-outline" style="--mdc-icon-size: 16px;"></ha-icon> ${time}</span>
               ${tempHtml}
-              <span style="display:flex; align-items:center; gap:4px;">${modeInfo.icon}<select class="az-inline-select az-sched-mode" data-sid="${s.id}" title="Mode">${Object.entries(MODES).map(([v, m]) => '<option value="' + v + '"' + (parseInt(v) === s.mode ? ' selected' : '') + '>' + m.label + '</option>').join('')}</select></span>
-              <span style="display:flex; align-items:center; gap:4px;"><ha-icon icon="mdi:fan" style="--mdc-icon-size: 16px;"></ha-icon><select class="az-inline-select az-sched-fan" data-sid="${s.id}" title="Fan speed">${[['auto', 'Auto'], ['1', 'Low'], ['2', 'Medium'], ['3', 'High']].map(([v, l]) => '<option value="' + v + '"' + ((s.pspeed == null || s.pspeed === '' ? 'auto' : String(s.pspeed)) === v ? ' selected' : '') + '>' + l + '</option>').join('')}</select></span>
+              <span class="az-sched-sel-wrap">${modeInfo.icon}<select class="az-inline-select az-sched-select az-sched-mode" data-sid="${s.id}" title="Mode">${Object.entries(MODES).map(([v, m]) => '<option value="' + v + '"' + (parseInt(v) === s.mode ? ' selected' : '') + '>' + m.label + '</option>').join('')}</select></span>
+              <span class="az-sched-sel-wrap"><ha-icon icon="mdi:fan"></ha-icon><select class="az-inline-select az-sched-select az-sched-fan" data-sid="${s.id}" title="Fan speed">${[['auto', 'Auto'], ['1', 'Low'], ['2', 'Medium'], ['3', 'High']].map(([v, l]) => '<option value="' + v + '"' + ((s.pspeed == null || s.pspeed === '' ? 'auto' : String(s.pspeed)) === v ? ' selected' : '') + '>' + l + '</option>').join('')}</select></span>
             </div>
           </div>
           <label class="az-schedule-toggle">
