@@ -1213,13 +1213,27 @@ class AirzoneSchedulesCard extends HTMLElement {
     if (!sid) { this._toast('Error: Schedule ID missing', true); return; }
     this._schedSpPending = this._schedSpPending || {};
     this._schedSpTimers = this._schedSpTimers || {};
-    const p = this._schedSpPending[sid] || {
-      setpoint: schedule.setpoint,
-      setpoint_heat: schedule.setpoint_heat,
-      setpoint_cool: schedule.setpoint_cool,
-    };
     const dkey = kind === 'heat' ? 'setpoint_heat' : kind === 'cool' ? 'setpoint_cool' : 'setpoint';
     const defC = kind === 'heat' ? 19 : kind === 'cool' ? 24 : 21;
+    const liveCard = this.querySelector('.az-schedule[data-sid="' + sid + '"]') || el;
+    let p = this._schedSpPending[sid];
+    if (!p) {
+      // No pending burst in progress: seed from the values currently
+      // SHOWN on the card. The debounce flush clears pending before the
+      // async memory-merge completes, so the captured `schedule` object
+      // can still hold the pre-burst value — stepping from it would jump
+      // back (e.g. +5 then - showing 64 instead of 69).
+      p = {
+        setpoint: schedule.setpoint,
+        setpoint_heat: schedule.setpoint_heat,
+        setpoint_cool: schedule.setpoint_cool,
+      };
+      [['heat', 'setpoint_heat'], ['cool', 'setpoint_cool'], ['single', 'setpoint']].forEach(([k, dk]) => {
+        const se = liveCard.querySelector('.az-sched-sp-val[data-kind="' + k + '"]');
+        const v = se ? parseFloat(se.textContent) : NaN;
+        if (!isNaN(v)) p[dk] = this._toCelsius(v);
+      });
+    }
     const curC = p[dkey] != null ? p[dkey] : defC;
     const disp = this._toDisplay(curC) + (dir === 'up' ? 1 : -1) * (this._useFah ? 1 : 0.5);
     let newC = Math.round(this._toCelsius(disp) * 2) / 2;
@@ -1235,9 +1249,8 @@ class AirzoneSchedulesCard extends HTMLElement {
     }
     p[dkey] = newC;
     this._schedSpPending[sid] = p;
-    // Find the value on the live card by id (the captured `el` can be a
-    // stale wrapper if the card was rebuilt by a prior mode-change patch).
-    const liveCard = this.querySelector('.az-schedule[data-sid="' + sid + '"]') || el;
+    // liveCard resolved above (the captured `el` can be a stale wrapper if
+    // the card was rebuilt by a prior mode-change patch).
     const valEl = liveCard.querySelector('.az-sched-sp-val[data-kind="' + kind + '"]');
     if (valEl) valEl.textContent = this._displayTemp(newC);
 
