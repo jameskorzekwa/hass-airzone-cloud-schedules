@@ -845,9 +845,15 @@ class AirzoneSchedulesCard extends HTMLElement {
       if (downBtn) downBtn.addEventListener('click', () => _bumpSingle(downBtn, 'down'));
       if (upBtn) upBtn.addEventListener('click', () => _bumpSingle(upBtn, 'up'));
 
-      // Dual (heat_cool) inline setpoint steppers. HA's set_temperature needs
-      // BOTH target_temp_low and target_temp_high, with low < high; clamp to
-      // the entity's reported min/max and keep a step-sized deadband.
+      // Dual (heat_cool) inline setpoint steppers. The Airzone Auto deadband
+      // is configurable on the backend and is NOT exposed to HA, so it can't
+      // be read/derived client-side. But the current band width is the
+      // minimum the backend will accept: moving a setpoint TOWARD the other
+      // (heat up / cool down) would breach it, so move the opposite setpoint
+      // with it to preserve the band — this makes "lower cool" pull heat
+      // down, mirroring "raise heat" pulling cool up, and never sends a
+      // too-narrow band that the backend would reject. Moving a setpoint
+      // AWAY (heat down / cool up) just moves that one.
       el.querySelectorAll('.az-zone-sp-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
           const eid = btn.dataset.entity;
@@ -860,23 +866,37 @@ class AirzoneSchedulesCard extends HTMLElement {
           const step = haFah ? 1 : (a.target_temp_step || 0.5);
           const minT = a.min_temp != null ? a.min_temp : (haFah ? 59 : 15);
           const maxT = a.max_temp != null ? a.max_temp : (haFah ? 86 : 30);
-          const d = btn.dataset.dir === 'up' ? step : -step;
+          const gap = Math.max(high - low, step);
+          const up = btn.dataset.dir === 'up';
           if (btn.dataset.kind === 'heat') {
-            low = Math.min(Math.max(minT, low + d), high - step);
-          } else {
-            high = Math.max(Math.min(maxT, high + d), low + step);
+            if (up) {                 // toward cool -> couple (push cool up)
+              low = Math.min(low + step, maxT - gap);
+              high = low + gap;
+            } else {                  // away -> heat only
+              low = Math.max(minT, low - step);
+            }
+          } else if (!up) {           // cool down, toward heat -> couple
+            high = Math.max(high - step, minT + gap);
+            low = high - gap;
+          } else {                    // cool up, away -> cool only
+            high = Math.min(maxT, high + step);
           }
-          const numEl = btn.closest('.az-zone-target').querySelector('.az-zone-num');
-          const prev = numEl ? numEl.textContent : null;
-          if (numEl) numEl.textContent = btn.dataset.kind === 'heat' ? low : high;
-          // set_temperature needs both bounds, but only pin the one the
-          // user changed; the other follows the backend (configurable
-          // deadband may auto-adjust it).
-          const optData = btn.dataset.kind === 'heat'
-            ? { target_temp_low: low }
-            : { target_temp_high: high };
-          this._zoneSetTemp(eid, { target_temp_low: low, target_temp_high: high }, optData,
-            () => { if (numEl && prev != null) numEl.textContent = prev; });
+          low = Math.min(Math.max(minT, low), maxT);
+          high = Math.min(Math.max(minT, high), maxT);
+          const card = btn.closest('.az-zone');
+          const nums = card ? card.querySelectorAll('.az-zone-hc .az-zone-num') : [];
+          const prevLow = nums[0] ? nums[0].textContent : null;
+          const prevHigh = nums[1] ? nums[1].textContent : null;
+          if (nums[0]) nums[0].textContent = low;
+          if (nums[1]) nums[1].textContent = high;
+          // We computed a backend-valid band, so pin both setpoints.
+          this._zoneSetTemp(eid,
+            { target_temp_low: low, target_temp_high: high },
+            { target_temp_low: low, target_temp_high: high },
+            () => {
+              if (nums[0] && prevLow != null) nums[0].textContent = prevLow;
+              if (nums[1] && prevHigh != null) nums[1].textContent = prevHigh;
+            });
         });
       });
 
