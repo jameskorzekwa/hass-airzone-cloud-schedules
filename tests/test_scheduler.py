@@ -289,12 +289,32 @@ class TestApply:
         sp = next(c for c in hass.services.async_call.await_args_list if c.args[:2] == ("climate", "set_temperature"))
         assert sp.args[2] == {"entity_id": "climate.upstairs", "temperature": 21}
 
-    async def test_heat_cool_without_range_support_and_no_single_returns_false(self):
+    async def test_dual_schedule_on_single_setpoint_zone_applies_midpoint(self):
+        # Regression: an Auto (mode 1) schedule whose zone only exposes a
+        # single setpoint (double-setpoint off) must still take effect —
+        # previously this returned False and the schedule silently no-op'd
+        # forever (the "Upstairs - Day didn't turn on at 9:30" bug).
         st = MagicMock()
         st.attributes = {"supported_features": 0}  # no TARGET_TEMPERATURE_RANGE
         sched, hass, store, reg = _make_scheduler(entity_state=st)
         ok = await sched._apply("climate.upstairs", {"name": "X", "mode": 1, "setpoint_heat": 18, "setpoint_cool": 26})
-        assert ok is False  # not applied -> reconcile won't record, will retry
+        assert ok is True
+        sp = next(c for c in hass.services.async_call.await_args_list if c.args[:2] == ("climate", "set_temperature"))
+        assert sp.args[2] == {"entity_id": "climate.upstairs", "temperature": 22}  # midpoint of 18/26
+
+    async def test_supports_range_read_after_mode_switch(self):
+        # Regression: capability is decided from the state AFTER set_hvac_mode,
+        # not a snapshot taken while the zone was still in Cool/single.
+        st_single = MagicMock()
+        st_single.attributes = {"supported_features": 0}  # before: single
+        st_range = MagicMock()
+        st_range.attributes = {"supported_features": 2}  # after switch: range
+        sched, hass, store, reg = _make_scheduler()
+        hass.states.get = MagicMock(side_effect=[st_single, st_range, st_range, st_range])
+        ok = await sched._apply("climate.upstairs", {"name": "X", "mode": 1, "setpoint_heat": 18, "setpoint_cool": 26})
+        assert ok is True
+        sp = next(c for c in hass.services.async_call.await_args_list if c.args[:2] == ("climate", "set_temperature"))
+        assert sp.args[2]["target_temp_low"] == 18 and sp.args[2]["target_temp_high"] == 26
 
     async def test_entity_unavailable_returns_false(self):
         sched, hass, store, reg = _make_scheduler()

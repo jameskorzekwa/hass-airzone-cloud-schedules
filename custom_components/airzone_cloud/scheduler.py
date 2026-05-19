@@ -188,15 +188,22 @@ class AirzoneScheduler:
                 )
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("Airzone scheduler: set_hvac_mode failed for %s", entity_id)
+            # Re-read AFTER the mode switch: which setpoint shape an Airzone
+            # zone exposes (single vs heat/cool range) depends on its mode,
+            # so deciding from the pre-switch snapshot (e.g. taken while the
+            # zone was in Cool) would wrongly conclude "no range" and skip
+            # the schedule entirely.
+            state = self.hass.states.get(entity_id) or state
 
         sf = state.attributes.get("supported_features", 0)
         supports_range = bool(sf & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE)
         sp_heat = sched.get("setpoint_heat")
         sp_cool = sched.get("setpoint_cool")
         sp_single = sched.get("setpoint")
+        dual = hvac == "heat_cool" and sp_heat is not None and sp_cool is not None
 
         try:
-            if hvac == "heat_cool" and supports_range and sp_heat is not None and sp_cool is not None:
+            if dual and supports_range:
                 await self.hass.services.async_call(
                     "climate", "set_temperature",
                     {
@@ -210,6 +217,22 @@ class AirzoneScheduler:
                 await self.hass.services.async_call(
                     "climate", "set_temperature",
                     {"entity_id": entity_id, "temperature": self._to_ha_temp(sp_single)},
+                    blocking=True,
+                )
+            elif dual:
+                # Auto schedule but the zone currently exposes only a single
+                # setpoint (double-setpoint off for this zone). Apply the
+                # heat/cool midpoint so the schedule still takes effect
+                # instead of silently doing nothing forever.
+                mid = round(((sp_heat + sp_cool) / 2) * 2) / 2
+                _LOGGER.info(
+                    "Airzone scheduler: '%s' -> %s is single-setpoint; applying "
+                    "midpoint %s°C of heat %s / cool %s",
+                    sched.get("name"), entity_id, mid, sp_heat, sp_cool,
+                )
+                await self.hass.services.async_call(
+                    "climate", "set_temperature",
+                    {"entity_id": entity_id, "temperature": self._to_ha_temp(mid)},
                     blocking=True,
                 )
             else:
