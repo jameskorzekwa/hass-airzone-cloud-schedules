@@ -598,19 +598,33 @@ class AirzoneSchedulesCard extends HTMLElement {
   // Optimistically set a zone setpoint: show the new value immediately
   // (via the _zoneOpt override consulted in _renderZones), call the
   // service, and on failure clear the override and revert the UI.
-  _zoneSetTemp(eid, data, revert) {
+  _zoneSetTemp(eid, serviceData, optData, revert) {
     this._zoneOpt = this._zoneOpt || {};
-    this._zoneOpt[eid] = Object.assign({}, data, { until: Date.now() + 15000 });
-    // No re-render here: the caller already updated the value in place, and
-    // the _zoneOpt override keeps it correct on the next natural render.
+    // Pin ONLY the setpoint(s) the user actually changed. For a dual zone
+    // the opposite setpoint can be auto-adjusted server-side (the deadband
+    // is configurable on the Airzone backend and is not exposed to HA), so
+    // leave it following live state instead of a stale guess — it then
+    // reflects the backend's real value as soon as the entity refreshes.
+    this._zoneOpt[eid] = Object.assign({}, optData, { until: Date.now() + 15000 });
+    const refresh = () =>
+      this._hass.callService('homeassistant', 'update_entity', { entity_id: eid });
     const p = this._hass.callService('climate', 'set_temperature',
-      Object.assign({ entity_id: eid }, data));
-    if (p && typeof p.catch === 'function') {
-      p.catch((err) => {
-        if (this._zoneOpt) delete this._zoneOpt[eid];
-        if (typeof revert === 'function') revert();
-        this._toast('Error: ' + ((err && err.message) || 'could not set temperature'), true);
-      });
+      Object.assign({ entity_id: eid }, serviceData));
+    if (p && typeof p.then === 'function') {
+      p.then(
+        () => {
+          // Re-poll the integration so any backend-adjusted opposite
+          // setpoint shows quickly instead of waiting for the cloud
+          // integration's normal poll interval.
+          setTimeout(refresh, 1500);
+          setTimeout(refresh, 5000);
+        },
+        (err) => {
+          if (this._zoneOpt) delete this._zoneOpt[eid];
+          if (typeof revert === 'function') revert();
+          this._toast('Error: ' + ((err && err.message) || 'could not set temperature'), true);
+        },
+      );
     }
   }
 
@@ -825,7 +839,7 @@ class AirzoneSchedulesCard extends HTMLElement {
         const numEl = anchorBtn.closest('.az-zone-target').querySelector('.az-zone-num');
         const prev = numEl ? numEl.textContent : null;
         if (numEl) numEl.textContent = newTemp;
-        this._zoneSetTemp(eid, { temperature: newTemp },
+        this._zoneSetTemp(eid, { temperature: newTemp }, { temperature: newTemp },
           () => { if (numEl && prev != null) numEl.textContent = prev; });
       };
       if (downBtn) downBtn.addEventListener('click', () => _bumpSingle(downBtn, 'down'));
@@ -855,7 +869,13 @@ class AirzoneSchedulesCard extends HTMLElement {
           const numEl = btn.closest('.az-zone-target').querySelector('.az-zone-num');
           const prev = numEl ? numEl.textContent : null;
           if (numEl) numEl.textContent = btn.dataset.kind === 'heat' ? low : high;
-          this._zoneSetTemp(eid, { target_temp_low: low, target_temp_high: high },
+          // set_temperature needs both bounds, but only pin the one the
+          // user changed; the other follows the backend (configurable
+          // deadband may auto-adjust it).
+          const optData = btn.dataset.kind === 'heat'
+            ? { target_temp_low: low }
+            : { target_temp_high: high };
+          this._zoneSetTemp(eid, { target_temp_low: low, target_temp_high: high }, optData,
             () => { if (numEl && prev != null) numEl.textContent = prev; });
         });
       });
