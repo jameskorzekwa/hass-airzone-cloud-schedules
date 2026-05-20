@@ -513,6 +513,7 @@ class AirzoneSchedulesCard extends HTMLElement {
         <div class="az-schedule-sec az-schedule-foot">
           <div class="az-schedule-foot-info">${badgesHtml}${deviceHtml}</div>
           <div class="az-schedule-actions">
+            ${isActive ? '<button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-apply" data-id="' + s.id + '" title="Apply now"><ha-icon icon="mdi:play" style="--mdc-icon-size: 18px;"></ha-icon></button>' : ''}
             <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-edit" data-id="${s.id}" title="Edit"><ha-icon icon="mdi:pencil" style="--mdc-icon-size: 18px;"></ha-icon></button>
             <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-dup" data-id="${s.id}" title="Duplicate"><ha-icon icon="mdi:content-copy" style="--mdc-icon-size: 18px;"></ha-icon></button>
             <button class="az-btn az-btn-danger az-btn-icon az-btn-sm az-del" data-id="${s.id}" title="Delete"><ha-icon icon="mdi:delete" style="--mdc-icon-size: 18px;"></ha-icon></button>
@@ -523,6 +524,8 @@ class AirzoneSchedulesCard extends HTMLElement {
       el.querySelector('.az-edit').addEventListener('click', () => this._openEditor(s));
       el.querySelector('.az-dup').addEventListener('click', () => this._openEditor(s, true));
       el.querySelector('.az-del').addEventListener('click', () => this._deleteSchedule(s.id));
+      const applyBtn = el.querySelector('.az-apply');
+      if (applyBtn) applyBtn.addEventListener('click', () => this._applyScheduleNow(s));
       el.querySelector('input[type=checkbox]').addEventListener('change', (e) => this._toggleSchedule(s, e.target.checked));
       el.querySelectorAll('.az-sched-sp-btn').forEach((btn) => {
         btn.addEventListener('click', () => this._bumpScheduleSetpoint(s, btn.dataset.kind, btn.dataset.dir, el));
@@ -1209,6 +1212,25 @@ class AirzoneSchedulesCard extends HTMLElement {
       oldEl.replaceChildren(...Array.from(fresh.childNodes));
     } else {
       this._renderList();
+    }
+  }
+
+  // Force-apply the schedule's setpoints to its devices right now (the
+  // "Apply" button on enabled cards). Useful after a device-side snapback
+  // or other drift; only errors notify.
+  async _applyScheduleNow(schedule) {
+    const id = schedule && schedule.id;
+    if (!id) return;
+    try {
+      await this._hass.callWS({
+        type: 'call_service', domain: 'airzone_cloud', service: 'ha_schedule_apply_now',
+        service_data: { schedule_id: id }, return_response: true,
+      });
+    } catch (err) {
+      this._toast(
+        'Error applying "' + (schedule.name || 'schedule') + '": ' +
+        (err.message || 'Check console'), true,
+      );
     }
   }
 
