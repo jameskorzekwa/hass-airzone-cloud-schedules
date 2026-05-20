@@ -468,3 +468,69 @@ class TestForceApplyOnEdit:
             call.data = {"id": "s1"}
             res = await handlers["ha_schedule_delete"](call)
         assert res == {"removed": True}
+
+
+class TestPostApplyVerify:
+    async def test_warns_when_device_snaps_back(self, caplog):
+        # Apply 65/75 then have the device "report" 68/75 -> must warn.
+        st = MagicMock()
+        st.attributes = {"target_temp_low": 68, "target_temp_high": 75}
+        sched, hass, store, reg = _make_scheduler(entity_state=st)
+        sched_def = {"name": "Home - Downstairs", "id": "x"}
+        sent = {"target_temp_low": 65, "target_temp_high": 75}
+        with caplog.at_level("WARNING", logger="custom_components.airzone_cloud.scheduler"):
+            await sched._post_apply_verify("climate.main_floor", sched_def, sent)
+        assert any("did not stick" in r.message for r in caplog.records)
+        assert any("Home - Downstairs" in r.message for r in caplog.records)
+
+    async def test_silent_when_values_match(self, caplog):
+        st = MagicMock()
+        st.attributes = {"target_temp_low": 65, "target_temp_high": 75}
+        sched, hass, store, reg = _make_scheduler(entity_state=st)
+        sent = {"target_temp_low": 65, "target_temp_high": 75}
+        with caplog.at_level("WARNING", logger="custom_components.airzone_cloud.scheduler"):
+            await sched._post_apply_verify("climate.main_floor", {"name": "X"}, sent)
+        assert not any("did not stick" in r.message for r in caplog.records)
+
+    async def test_apply_schedules_a_verifier(self):
+        sched, hass, store, reg = _make_scheduler()
+        with patch("custom_components.airzone_cloud.scheduler.async_call_later") as acl:
+            ok = await sched._apply(
+                "climate.upstairs",
+                {"name": "X", "mode": 1, "setpoint_heat": 20, "setpoint_cool": 21},
+            )
+        assert ok is True
+        assert acl.call_count == 1
+
+
+class TestApplyNow:
+    async def test_applies_to_each_device_of_schedule(self):
+        sched_def = {
+            "id": "s1",
+            "name": "Home - Downstairs",
+            "mode": 1,
+            "setpoint_heat": 18.5,
+            "setpoint_cool": 24,
+            "device_ids": ["dev-down", "dev-up"],
+        }
+        sched, hass, store, reg = _make_scheduler(
+            schedules=[sched_def],
+            devices={"dev-down": "climate.main_floor", "dev-up": "climate.upstairs"},
+        )
+        with patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg):
+            res = await sched.apply_now("s1")
+        assert [a["entity_id"] for a in res["applied"]] == ["climate.main_floor", "climate.upstairs"]
+        assert all(a["ok"] is True for a in res["applied"])
+        sp_calls = [c for c in hass.services.async_call.await_args_list if c.args[:2] == ("climate", "set_temperature")]
+        entities = sorted(c.args[2]["entity_id"] for c in sp_calls)
+        assert entities == ["climate.main_floor", "climate.upstairs"]
+        for c in sp_calls:
+            assert c.args[2]["target_temp_low"] == 18.5
+            assert c.args[2]["target_temp_high"] == 24
+
+    async def test_unknown_schedule_returns_error(self):
+        sched, hass, store, reg = _make_scheduler(schedules=[{"id": "s1", "name": "X"}])
+        with patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg):
+            res = await sched.apply_now("missing")
+        assert res["applied"] == []
+        assert "not found" in res["error"]

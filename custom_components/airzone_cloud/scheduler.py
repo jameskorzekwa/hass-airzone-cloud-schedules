@@ -28,7 +28,7 @@ from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 
 from .const import DOMAIN
 from .schedule_store import HAScheduleStore
@@ -36,6 +36,9 @@ from .schedule_store import HAScheduleStore
 _LOGGER = logging.getLogger(__name__)
 
 RECONCILE_INTERVAL = timedelta(seconds=60)
+# Re-read the entity this long after _apply to confirm the values stuck.
+# Today's Downstairs miss showed an Airzone-side snapback ~83s after apply.
+POST_APPLY_VERIFY_DELAY_S = 90
 
 # Airzone schedule mode number -> HA HVAC mode string
 SCHEDULE_MODE_TO_HVAC: dict[int, str] = {
@@ -86,19 +89,17 @@ class AirzoneScheduler:
         self.store = store
         self._unsubs: list = []
         self._started_unsub = None
+        # entity_id -> cancel callback for a pending post-apply verifier
+        self._verifiers: dict = {}
 
     # --- lifecycle ---
 
     async def async_start(self) -> None:
-        self._unsubs.append(
-            async_track_time_interval(self.hass, self._interval_cb, RECONCILE_INTERVAL)
-        )
+        self._unsubs.append(async_track_time_interval(self.hass, self._interval_cb, RECONCILE_INTERVAL))
         if self.hass.is_running:
             await self.async_reconcile("startup")
         else:
-            self._started_unsub = self.hass.bus.async_listen_once(
-                EVENT_HOMEASSISTANT_STARTED, self._started_cb
-            )
+            self._started_unsub = self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, self._started_cb)
         self._register_services()
 
     async def async_stop(self) -> None:
@@ -110,6 +111,10 @@ class AirzoneScheduler:
             with contextlib.suppress(Exception):
                 unsub()
         self._unsubs.clear()
+        for cancel in self._verifiers.values():
+            with contextlib.suppress(Exception):
+                cancel()
+        self._verifiers.clear()
 
     async def _interval_cb(self, _now) -> None:
         await self.async_reconcile("interval")
@@ -162,7 +167,10 @@ class AirzoneScheduler:
                     await self.store.set_last_applied(device_id, key)
                     _LOGGER.info(
                         "Airzone scheduler (%s): applied '%s' to %s [%s]",
-                        reason, best.get("name"), entity_id, key,
+                        reason,
+                        best.get("name"),
+                        entity_id,
+                        key,
                     )
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Airzone scheduler reconcile failed (%s)", reason)
@@ -183,8 +191,10 @@ class AirzoneScheduler:
         if hvac:
             try:
                 await self.hass.services.async_call(
-                    "climate", "set_hvac_mode",
-                    {"entity_id": entity_id, "hvac_mode": hvac}, blocking=True,
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": entity_id, "hvac_mode": hvac},
+                    blocking=True,
                 )
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("Airzone scheduler: set_hvac_mode failed for %s", entity_id)
@@ -202,21 +212,25 @@ class AirzoneScheduler:
         sp_single = sched.get("setpoint")
         dual = hvac == "heat_cool" and sp_heat is not None and sp_cool is not None
 
+        sent: dict = {}
         try:
             if dual and supports_range:
+                sent = {
+                    "target_temp_low": self._to_ha_temp(sp_heat),
+                    "target_temp_high": self._to_ha_temp(sp_cool),
+                }
                 await self.hass.services.async_call(
-                    "climate", "set_temperature",
-                    {
-                        "entity_id": entity_id,
-                        "target_temp_low": self._to_ha_temp(sp_heat),
-                        "target_temp_high": self._to_ha_temp(sp_cool),
-                    },
+                    "climate",
+                    "set_temperature",
+                    {"entity_id": entity_id, **sent},
                     blocking=True,
                 )
             elif sp_single is not None:
+                sent = {"temperature": self._to_ha_temp(sp_single)}
                 await self.hass.services.async_call(
-                    "climate", "set_temperature",
-                    {"entity_id": entity_id, "temperature": self._to_ha_temp(sp_single)},
+                    "climate",
+                    "set_temperature",
+                    {"entity_id": entity_id, **sent},
                     blocking=True,
                 )
             elif dual:
@@ -226,25 +240,94 @@ class AirzoneScheduler:
                 # instead of silently doing nothing forever.
                 mid = round(((sp_heat + sp_cool) / 2) * 2) / 2
                 _LOGGER.info(
-                    "Airzone scheduler: '%s' -> %s is single-setpoint; applying "
-                    "midpoint %s°C of heat %s / cool %s",
-                    sched.get("name"), entity_id, mid, sp_heat, sp_cool,
+                    "Airzone scheduler: '%s' -> %s is single-setpoint; applying midpoint %s°C of heat %s / cool %s",
+                    sched.get("name"),
+                    entity_id,
+                    mid,
+                    sp_heat,
+                    sp_cool,
                 )
+                sent = {"temperature": self._to_ha_temp(mid)}
                 await self.hass.services.async_call(
-                    "climate", "set_temperature",
-                    {"entity_id": entity_id, "temperature": self._to_ha_temp(mid)},
+                    "climate",
+                    "set_temperature",
+                    {"entity_id": entity_id, **sent},
                     blocking=True,
                 )
             else:
                 _LOGGER.warning(
                     "Airzone scheduler: '%s' has no usable setpoint for %s (range=%s)",
-                    sched.get("name"), entity_id, supports_range,
+                    sched.get("name"),
+                    entity_id,
+                    supports_range,
                 )
                 return False
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Airzone scheduler: set_temperature failed for %s", entity_id)
             return False
+        if sent:
+            self._schedule_post_apply_verify(entity_id, sched, sent)
         return True
+
+    # --- post-apply verification ---
+
+    def _schedule_post_apply_verify(self, entity_id: str, sched: dict, sent: dict) -> None:
+        """Re-read the entity ~90s after _apply and warn if the device snapped
+        back to different values (Airzone has been observed silently reverting
+        a successfully-issued setpoint within ~80s)."""
+        prev = self._verifiers.pop(entity_id, None)
+        if prev is not None:
+            with contextlib.suppress(Exception):
+                prev()
+
+        async def _cb(_now) -> None:
+            self._verifiers.pop(entity_id, None)
+            await self._post_apply_verify(entity_id, sched, sent)
+
+        self._verifiers[entity_id] = async_call_later(
+            self.hass,
+            POST_APPLY_VERIFY_DELAY_S,
+            _cb,
+        )
+
+    async def _post_apply_verify(self, entity_id: str, sched: dict, sent: dict) -> None:
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return
+        attrs = state.attributes
+        mismatches = {k: (sent[k], attrs.get(k)) for k in sent if attrs.get(k) != sent[k]}
+        if mismatches:
+            _LOGGER.warning(
+                "Airzone scheduler: '%s' applied to %s did not stick after %ds — "
+                "sent %s, device reports %s (likely a device-side rejection)",
+                sched.get("name"),
+                entity_id,
+                POST_APPLY_VERIFY_DELAY_S,
+                sent,
+                {k: attrs.get(k) for k in sent},
+            )
+
+    async def apply_now(self, schedule_id: str) -> dict:
+        """Force-apply a schedule's setpoints to all its devices right now.
+
+        Unlike reconcile, this ignores last_applied — it's user-driven (the
+        "Apply" button on the schedule card) and is meant to push the schedule
+        back into effect after a device-side snapback or other drift.
+        """
+        sched = next((s for s in self.store.list_schedules() if s.get("id") == schedule_id), None)
+        if sched is None:
+            return {"applied": [], "error": f"schedule '{schedule_id}' not found"}
+        device_map = self._device_entity_map()
+        applied: list[dict] = []
+        for did in sched.get("device_ids") or []:
+            eid = device_map.get(did)
+            if not eid:
+                applied.append({"device_id": did, "entity_id": None, "ok": False, "reason": "no entity"})
+                continue
+            ok = await self._apply(eid, sched)
+            applied.append({"device_id": did, "entity_id": eid, "ok": ok})
+        _LOGGER.info("Airzone scheduler (apply_now): '%s' -> %s", sched.get("name"), applied)
+        return {"applied": applied}
 
     async def _force_devices(self, sched: dict | None) -> None:
         """Clear last-applied for a schedule's zones so the next reconcile
@@ -300,31 +383,55 @@ class AirzoneScheduler:
             await self.async_reconcile("manual")
             return {"ok": True}
 
+        async def apply_now_svc(call: ServiceCall) -> dict:
+            return await self.apply_now(call.data["schedule_id"])
+
         self.hass.services.async_register(
-            DOMAIN, "ha_schedule_add", add,
+            DOMAIN,
+            "ha_schedule_add",
+            add,
             schema=vol.Schema({vol.Required("schedule"): dict}),
             supports_response=SupportsResponse.OPTIONAL,
         )
         self.hass.services.async_register(
-            DOMAIN, "ha_schedule_update", update,
+            DOMAIN,
+            "ha_schedule_update",
+            update,
             schema=vol.Schema({vol.Required("id"): cv.string, vol.Required("changes"): dict}),
             supports_response=SupportsResponse.OPTIONAL,
         )
         self.hass.services.async_register(
-            DOMAIN, "ha_schedule_delete", delete,
+            DOMAIN,
+            "ha_schedule_delete",
+            delete,
             schema=vol.Schema({vol.Required("id"): cv.string}),
             supports_response=SupportsResponse.OPTIONAL,
         )
         self.hass.services.async_register(
-            DOMAIN, "ha_schedule_list", list_,
-            schema=vol.Schema({}), supports_response=SupportsResponse.ONLY,
+            DOMAIN,
+            "ha_schedule_list",
+            list_,
+            schema=vol.Schema({}),
+            supports_response=SupportsResponse.ONLY,
         )
         self.hass.services.async_register(
-            DOMAIN, "ha_schedule_clear_last_applied", clear_last_applied,
+            DOMAIN,
+            "ha_schedule_clear_last_applied",
+            clear_last_applied,
             schema=vol.Schema({vol.Optional("device_id"): cv.string}),
             supports_response=SupportsResponse.OPTIONAL,
         )
         self.hass.services.async_register(
-            DOMAIN, "ha_reconcile_now", reconcile_now,
-            schema=vol.Schema({}), supports_response=SupportsResponse.OPTIONAL,
+            DOMAIN,
+            "ha_reconcile_now",
+            reconcile_now,
+            schema=vol.Schema({}),
+            supports_response=SupportsResponse.OPTIONAL,
+        )
+        self.hass.services.async_register(
+            DOMAIN,
+            "ha_schedule_apply_now",
+            apply_now_svc,
+            schema=vol.Schema({vol.Required("schedule_id"): cv.string}),
+            supports_response=SupportsResponse.OPTIONAL,
         )
