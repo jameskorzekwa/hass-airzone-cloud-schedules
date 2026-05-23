@@ -28,11 +28,19 @@ Schedule dict shape::
 ``"<schedule_id>@<fired_iso>"`` so a reconcile only (re)applies on a NEW period
 or a MISSED transition (HA was down/broken), never fighting manual mid-period
 changes. It is persisted so the catch-up survives restarts.
+
+``last_reconciled_at`` is the wall-clock time of the last successful reconcile,
+persisted across restarts. The scheduler uses it to bound catch-up: a stale
+fire is only re-applied if it happened AFTER our last reconcile (i.e., HA was
+actually down at the fire time). Without this, a missing/cleared
+``last_applied`` would let the reconciler re-apply yesterday's morning
+schedule at midnight, clobbering whatever state has accumulated.
 """
 
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -46,7 +54,7 @@ class HAScheduleStore:
 
     def __init__(self, hass: HomeAssistant) -> None:
         self._store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
-        self._data: dict = {"schedules": [], "last_applied": {}}
+        self._data: dict = {"schedules": [], "last_applied": {}, "last_reconciled_at": None}
 
     async def load(self) -> None:
         stored = await self._store.async_load()
@@ -54,9 +62,10 @@ class HAScheduleStore:
             self._data = {
                 "schedules": stored.get("schedules", []),
                 "last_applied": stored.get("last_applied", {}),
+                "last_reconciled_at": stored.get("last_reconciled_at"),
             }
         else:
-            self._data = {"schedules": [], "last_applied": {}}
+            self._data = {"schedules": [], "last_applied": {}, "last_reconciled_at": None}
 
     async def _save(self) -> None:
         await self._store.async_save(self._data)
@@ -114,4 +123,21 @@ class HAScheduleStore:
             self._data["last_applied"] = {}
         else:
             self._data["last_applied"].pop(device_id, None)
+        await self._save()
+
+    # --- last-reconciled wall time (catch-up bound) ---
+
+    def get_last_reconciled_at(self) -> datetime | None:
+        v = self._data.get("last_reconciled_at")
+        if not v:
+            return None
+        if isinstance(v, datetime):
+            return v
+        try:
+            return datetime.fromisoformat(v)
+        except (TypeError, ValueError):
+            return None
+
+    async def set_last_reconciled_at(self, dt: datetime) -> None:
+        self._data["last_reconciled_at"] = dt.isoformat(timespec="seconds")
         await self._save()
