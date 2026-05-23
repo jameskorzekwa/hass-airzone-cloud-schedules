@@ -39,6 +39,11 @@ RECONCILE_INTERVAL = timedelta(seconds=60)
 # Re-read the entity this long after _apply to confirm the values stuck.
 # Today's Downstairs miss showed an Airzone-side snapback ~83s after apply.
 POST_APPLY_VERIFY_DELAY_S = 90
+# Fires within this window of "now" are always applied — this is the normal
+# "a transition just happened" path and must not be gated on prior state.
+# Wider than RECONCILE_INTERVAL to absorb jitter (a fire at 22:00:00 caught
+# by a reconcile at 22:01:30 is still "fresh").
+RECENT_FIRE_WINDOW = timedelta(seconds=180)
 
 # Airzone schedule mode number -> HA HVAC mode string
 SCHEDULE_MODE_TO_HVAC: dict[int, str] = {
@@ -134,44 +139,67 @@ class AirzoneScheduler:
                 out[entry.unique_id] = entry.entity_id
         return out
 
-    async def async_reconcile(self, reason: str) -> None:
+    async def async_reconcile(self, reason: str, *, bypass_catch_up_bound: bool = False) -> None:
         try:
-            schedules = [s for s in self.store.list_schedules() if s.get("enabled", True)]
-            if not schedules:
-                return
-            device_map = self._device_entity_map()
-            if not device_map:
-                return
             now = datetime.now()
-
-            # For each Airzone device, pick the most-recently-fired enabled schedule.
-            for device_id, entity_id in device_map.items():
-                best = None
-                best_time = None
-                for sched in schedules:
-                    if device_id not in (sched.get("device_ids") or []):
+            schedules = [s for s in self.store.list_schedules() if s.get("enabled", True)]
+            device_map = self._device_entity_map()
+            last_recon = self.store.get_last_reconciled_at()
+            if schedules and device_map:
+                # For each Airzone device, pick the most-recently-fired enabled schedule.
+                for device_id, entity_id in device_map.items():
+                    best = None
+                    best_time = None
+                    for sched in schedules:
+                        if device_id not in (sched.get("device_ids") or []):
+                            continue
+                        fired = get_last_fired(sched, now)
+                        if fired and (best_time is None or fired > best_time):
+                            best_time = fired
+                            best = sched
+                    if not best:
                         continue
-                    fired = get_last_fired(sched, now)
-                    if fired and (best_time is None or fired > best_time):
-                        best_time = fired
-                        best = sched
-                if not best:
-                    continue
 
-                key = f"{best['id']}@{best_time.isoformat(timespec='minutes')}"
-                if self.store.get_last_applied(device_id) == key:
-                    continue  # same period already applied — respect manual changes
+                    key = f"{best['id']}@{best_time.isoformat(timespec='minutes')}"
+                    if self.store.get_last_applied(device_id) == key:
+                        continue  # same period already applied — respect manual changes
 
-                applied = await self._apply(entity_id, best)
-                if applied:
-                    await self.store.set_last_applied(device_id, key)
-                    _LOGGER.info(
-                        "Airzone scheduler (%s): applied '%s' to %s [%s]",
-                        reason,
-                        best.get("name"),
-                        entity_id,
-                        key,
-                    )
+                    # Catch-up bound: a fire within RECENT_FIRE_WINDOW is a
+                    # real transition just happening, always apply. An OLDER
+                    # fire only applies if HA was demonstrably down at the
+                    # fire time (i.e., the fire happened AFTER our last
+                    # successful reconcile). If we'd already reconciled
+                    # past the fire, HA was up at the time and handled it
+                    # — re-applying now would clobber whatever state has
+                    # accumulated since (the 2026-05-22 midnight bug).
+                    is_stale = (now - best_time) > RECENT_FIRE_WINDOW
+                    ha_was_up_at_fire = last_recon is None or best_time <= last_recon
+                    if not bypass_catch_up_bound and is_stale and ha_was_up_at_fire:
+                        _LOGGER.debug(
+                            "Airzone scheduler (%s): skipping stale catch-up for %s (fire=%s, last_recon=%s, now=%s)",
+                            reason,
+                            entity_id,
+                            best_time.isoformat(timespec="minutes"),
+                            last_recon.isoformat(timespec="seconds") if last_recon else "never",
+                            now.isoformat(timespec="seconds"),
+                        )
+                        continue
+
+                    applied = await self._apply(entity_id, best)
+                    if applied:
+                        await self.store.set_last_applied(device_id, key)
+                        _LOGGER.info(
+                            "Airzone scheduler (%s): applied '%s' to %s [%s]",
+                            reason,
+                            best.get("name"),
+                            entity_id,
+                            key,
+                        )
+            # Always advance the reconcile watermark — even if we had no
+            # work to do, we just observed wall time "now" with HA running,
+            # which is what lets future startups know HA was up at any
+            # transition before now.
+            await self.store.set_last_reconciled_at(now)
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Airzone scheduler reconcile failed (%s)", reason)
 
@@ -352,13 +380,16 @@ class AirzoneScheduler:
         async def add(call: ServiceCall) -> dict:
             sched = await store.add_schedule(dict(call.data["schedule"]))
             await self._force_devices(sched)
-            await self.async_reconcile("schedule_added")
+            # Explicit user intent: bypass the staleness bound so a just-added
+            # schedule takes effect immediately, even if its most-recent fire
+            # is hours stale (e.g., adding a 9:30 schedule at 14:00).
+            await self.async_reconcile("schedule_added", bypass_catch_up_bound=True)
             return {"schedule": sched}
 
         async def update(call: ServiceCall) -> dict:
             sched = await store.update_schedule(call.data["id"], dict(call.data["changes"]))
             await self._force_devices(sched)
-            await self.async_reconcile("schedule_updated")
+            await self.async_reconcile("schedule_updated", bypass_catch_up_bound=True)
             return {"schedule": sched}
 
         async def delete(call: ServiceCall) -> dict:
@@ -380,7 +411,9 @@ class AirzoneScheduler:
             return {"cleared": True}
 
         async def reconcile_now(call: ServiceCall) -> dict:
-            await self.async_reconcile("manual")
+            # Manual user trigger — bypass the staleness bound (this is
+            # explicit "apply the current period").
+            await self.async_reconcile("manual", bypass_catch_up_bound=True)
             return {"ok": True}
 
         async def apply_now_svc(call: ServiceCall) -> dict:

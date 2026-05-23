@@ -150,11 +150,13 @@ class TestReconcile:
                 },
             ]
         )
+        # Reconcile at 09:00:30 — the fire just happened, well within the
+        # RECENT_FIRE_WINDOW, so the catch-up bound does not apply.
         with (
             patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg),
             patch("custom_components.airzone_cloud.scheduler.datetime") as dt,
         ):
-            dt.now.return_value = SAT
+            dt.now.return_value = datetime(2026, 5, 16, 9, 0, 30)
             await sched.async_reconcile("test")
         # set_hvac_mode heat_cool + set_temperature low/high
         calls = hass.services.async_call.await_args_list
@@ -188,8 +190,9 @@ class TestReconcile:
             await sched.async_reconcile("test")
         hass.services.async_call.assert_not_called()  # respected, no re-apply
 
-    async def test_missed_transition_catch_up(self):
-        # last_applied points at a stale/old key -> must re-apply current period
+    async def test_missed_transition_catch_up_when_ha_was_down(self):
+        # last_applied points at a stale/old key AND last_recon predates the
+        # last fire -> HA was demonstrably down at the fire time, so catch up.
         sched, hass, store, reg = _make_scheduler(
             schedules=[
                 {
@@ -205,6 +208,8 @@ class TestReconcile:
             ],
             last_applied={"dev-up": "s1@2026-05-09T09:00"},  # last week
         )
+        # last_recon BEFORE today's 09:00 fire -> HA was down at the transition.
+        store._data["last_reconciled_at"] = "2026-05-16T08:55:00"
         with (
             patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg),
             patch("custom_components.airzone_cloud.scheduler.datetime") as dt,
@@ -239,6 +244,10 @@ class TestReconcile:
                 },
             ]
         )
+        # last_recon BEFORE today's 09:00 fire so the catch-up bound allows
+        # picking up the most-recent transition. With both 06:00 and 09:00
+        # in the past, 09:00 (the day schedule) wins.
+        store._data["last_reconciled_at"] = "2026-05-16T08:00:00"
         with (
             patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg),
             patch("custom_components.airzone_cloud.scheduler.datetime") as dt,
@@ -395,14 +404,16 @@ class TestForceApplyOnEdit:
             last_applied={"dev-up": "s1@2026-05-16T09:00"},
         )
         # Without the force, reconcile would skip (same key). Simulate the
-        # add/update service path: clear the schedule's devices, then reconcile.
+        # add/update service path: clear the schedule's devices, then
+        # reconcile with the catch-up bound bypassed (as the real service
+        # handler does — explicit user intent).
         await sched._force_devices(store.list_schedules()[0])
         with (
             patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg),
             patch("custom_components.airzone_cloud.scheduler.datetime") as dt,
         ):
             dt.now.return_value = SAT
-            await sched.async_reconcile("schedule_updated")
+            await sched.async_reconcile("schedule_updated", bypass_catch_up_bound=True)
         sp = next(c for c in hass.services.async_call.await_args_list if c.args[:2] == ("climate", "set_temperature"))
         assert sp.args[2]["target_temp_low"] == 21
         assert sp.args[2]["target_temp_high"] == 27
@@ -501,6 +512,185 @@ class TestPostApplyVerify:
             )
         assert ok is True
         assert acl.call_count == 1
+
+
+class TestCatchUpBound:
+    """Catch-up only fires for transitions that happened AFTER our last
+    successful reconcile — i.e., genuinely missed while HA was down. A fire
+    that pre-dates last_reconciled_at was already evaluated; re-applying it
+    after a restart would clobber whatever state the system has accumulated
+    in the meantime (the 2026-05-22 main_floor midnight bug).
+    """
+
+    async def test_stale_fire_before_last_recon_is_not_caught_up(self):
+        # Regression for the 2026-05-23 main_floor midnight bug. Day schedule
+        # fires at 09:30 daily. HA was running through yesterday 09:30 (so
+        # last_recon advanced past that). At ~midnight HA briefly restarted;
+        # last_applied is missing on startup (storage hiccup / not yet
+        # flushed). On the startup reconcile, the most-recent fire is
+        # yesterday-09:30 — 15h stale. It must NOT be re-applied: HA was up
+        # at the fire time, so whatever happened then is final.
+        sched, hass, store, reg = _make_scheduler(
+            schedules=[
+                {
+                    "id": "day",
+                    "name": "Home - Downstairs",
+                    "enabled": True,
+                    "mode": 1,
+                    "days": [0, 1, 2, 3, 4, 5, 6],
+                    "hour": 9,
+                    "minutes": 30,
+                    "device_ids": ["dev-down"],
+                    "setpoint_heat": 18.5,
+                    "setpoint_cool": 24,
+                },
+            ],
+            devices={"dev-down": "climate.main_floor"},
+            last_applied={},  # missing, simulates the storage hiccup
+        )
+        # Last reconcile ran late yesterday evening, well AFTER yesterday's
+        # 09:30 fire — so we know HA was up when the fire happened.
+        store._data["last_reconciled_at"] = "2026-05-22T23:42:00"
+
+        now_midnight = datetime(2026, 5, 23, 0, 40)  # Fri 00:40, post-restart
+        with (
+            patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg),
+            patch("custom_components.airzone_cloud.scheduler.datetime") as dt,
+        ):
+            dt.now.return_value = now_midnight
+            await sched.async_reconcile("ha_started")
+        set_temp = [c for c in hass.services.async_call.await_args_list if c.args[:2] == ("climate", "set_temperature")]
+        assert set_temp == [], f"Stale catch-up applied: {set_temp}"
+
+    async def test_fresh_fire_applies_even_with_no_last_recon(self):
+        # A fire within the last RECENT_FIRE_WINDOW (a "real" transition that
+        # just happened) always applies, regardless of last_reconciled_at.
+        # Without this, the very first reconcile after a fresh install /
+        # boot would never apply anything.
+        sched, hass, store, reg = _make_scheduler(
+            schedules=[
+                {
+                    "id": "day",
+                    "enabled": True,
+                    "mode": 1,
+                    "days": [0, 1, 2, 3, 4, 5, 6],
+                    "hour": 9,
+                    "minutes": 0,
+                    "device_ids": ["dev-up"],
+                    "setpoint_heat": 18,
+                    "setpoint_cool": 26,
+                },
+            ],
+        )
+        # No last_reconciled_at set; now is 09:01 = 60s after the fire.
+        with (
+            patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg),
+            patch("custom_components.airzone_cloud.scheduler.datetime") as dt,
+        ):
+            dt.now.return_value = datetime(2026, 5, 16, 9, 1)
+            await sched.async_reconcile("interval")
+        sp = [c for c in hass.services.async_call.await_args_list if c.args[:2] == ("climate", "set_temperature")]
+        assert len(sp) == 1
+        assert store.get_last_applied("dev-up") == "day@2026-05-16T09:00"
+
+    async def test_genuine_missed_transition_is_caught_up(self):
+        # HA was down DURING a fire time: last_recon is BEFORE the fire,
+        # and HA comes back AFTER it. This is the legitimate catch-up case
+        # and must still work.
+        sched, hass, store, reg = _make_scheduler(
+            schedules=[
+                {
+                    "id": "night",
+                    "enabled": True,
+                    "mode": 1,
+                    "days": [0, 1, 2, 3, 4, 5, 6],
+                    "hour": 22,
+                    "minutes": 0,
+                    "device_ids": ["dev-up"],
+                    "setpoint_heat": 18.5,
+                    "setpoint_cool": 19.5,
+                },
+            ],
+        )
+        # last_recon was 21:55 (just before the fire); now is 22:05 (just
+        # after) — HA was down for 10 minutes spanning 22:00.
+        store._data["last_reconciled_at"] = "2026-05-16T21:55:00"
+        with (
+            patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg),
+            patch("custom_components.airzone_cloud.scheduler.datetime") as dt,
+        ):
+            dt.now.return_value = datetime(2026, 5, 16, 22, 5)
+            await sched.async_reconcile("ha_started")
+        sp = [c for c in hass.services.async_call.await_args_list if c.args[:2] == ("climate", "set_temperature")]
+        assert len(sp) == 1
+        assert store.get_last_applied("dev-up") == "night@2026-05-16T22:00"
+
+    async def test_stale_fire_with_no_last_recon_is_skipped(self):
+        # Cold start (e.g., fresh install) with last_reconciled_at = None:
+        # don't auto-apply a stale schedule. The user can use Apply Now to
+        # bootstrap if they want the active period applied immediately.
+        sched, hass, store, reg = _make_scheduler(
+            schedules=[
+                {
+                    "id": "day",
+                    "enabled": True,
+                    "mode": 1,
+                    "days": [0, 1, 2, 3, 4, 5, 6],
+                    "hour": 9,
+                    "minutes": 0,
+                    "device_ids": ["dev-up"],
+                    "setpoint_heat": 18,
+                    "setpoint_cool": 26,
+                },
+            ],
+        )
+        # No last_recon. Now is 6h after fire — well past RECENT window.
+        with (
+            patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg),
+            patch("custom_components.airzone_cloud.scheduler.datetime") as dt,
+        ):
+            dt.now.return_value = datetime(2026, 5, 16, 15, 0)
+            await sched.async_reconcile("ha_started")
+        sp = [c for c in hass.services.async_call.await_args_list if c.args[:2] == ("climate", "set_temperature")]
+        assert sp == []
+
+    async def test_bypass_catch_up_bound_applies_even_when_stale(self):
+        # The add/update service handlers and apply_now want the schedule
+        # pushed regardless of recency — they're explicit user intent.
+        sched, hass, store, reg = _make_scheduler(
+            schedules=[
+                {
+                    "id": "day",
+                    "enabled": True,
+                    "mode": 1,
+                    "days": [0, 1, 2, 3, 4, 5, 6],
+                    "hour": 9,
+                    "minutes": 0,
+                    "device_ids": ["dev-up"],
+                    "setpoint_heat": 18,
+                    "setpoint_cool": 26,
+                },
+            ],
+        )
+        store._data["last_reconciled_at"] = "2026-05-16T14:00:00"  # past the fire
+        with (
+            patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg),
+            patch("custom_components.airzone_cloud.scheduler.datetime") as dt,
+        ):
+            dt.now.return_value = datetime(2026, 5, 16, 15, 0)
+            await sched.async_reconcile("schedule_updated", bypass_catch_up_bound=True)
+        sp = [c for c in hass.services.async_call.await_args_list if c.args[:2] == ("climate", "set_temperature")]
+        assert len(sp) == 1
+
+    async def test_reconcile_advances_last_reconciled_at(self):
+        sched, hass, store, reg = _make_scheduler(schedules=[])
+        with (
+            patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg),
+            patch("custom_components.airzone_cloud.scheduler.datetime") as dt,
+        ):
+            dt.now.return_value = SAT
+            await sched.async_reconcile("interval")
+        assert store.get_last_reconciled_at() == SAT
 
 
 class TestApplyNow:
