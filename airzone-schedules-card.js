@@ -848,15 +848,14 @@ class AirzoneSchedulesCard extends HTMLElement {
       if (downBtn) downBtn.addEventListener('click', () => _bumpSingle(downBtn, 'down'));
       if (upBtn) upBtn.addEventListener('click', () => _bumpSingle(upBtn, 'up'));
 
-      // Dual (heat_cool) inline setpoint steppers. The Airzone Auto deadband
-      // is configurable on the backend and is NOT exposed to HA, so it can't
-      // be read/derived client-side. But the current band width is the
-      // minimum the backend will accept: moving a setpoint TOWARD the other
-      // (heat up / cool down) would breach it, so move the opposite setpoint
-      // with it to preserve the band — this makes "lower cool" pull heat
-      // down, mirroring "raise heat" pulling cool up, and never sends a
-      // too-narrow band that the backend would reject. Moving a setpoint
-      // AWAY (heat down / cool up) just moves that one.
+      // Dual (heat_cool) inline setpoint steppers. The clicked setpoint
+      // moves independently — coupling kicks in ONLY when the resulting
+      // band would be narrower than the configured Airzone Auto deadband
+      // (configurable on the backend, not exposed to HA). Users with a
+      // backend deadband set their card config `setpoint_differential`
+      // to that value (e.g. `setpoint_differential: 2`); the default of 0
+      // disables coupling entirely so the two setpoints move independently
+      // and the user only sees an error if the backend rejects the band.
       el.querySelectorAll('.az-zone-sp-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
           const eid = btn.dataset.entity;
@@ -869,20 +868,29 @@ class AirzoneSchedulesCard extends HTMLElement {
           const step = haFah ? 1 : (a.target_temp_step || 0.5);
           const minT = a.min_temp != null ? a.min_temp : (haFah ? 59 : 15);
           const maxT = a.max_temp != null ? a.max_temp : (haFah ? 86 : 30);
-          const gap = Math.max(high - low, step);
+          const differential = Number(this.config && this.config.setpoint_differential) || 0;
           const up = btn.dataset.dir === 'up';
-          if (btn.dataset.kind === 'heat') {
-            if (up) {                 // toward cool -> couple (push cool up)
-              low = Math.min(low + step, maxT - gap);
-              high = low + gap;
-            } else {                  // away -> heat only
-              low = Math.max(minT, low - step);
+          const isHeat = btn.dataset.kind === 'heat';
+          // Move just the clicked setpoint first.
+          if (isHeat) {
+            low = up ? Math.min(maxT, low + step) : Math.max(minT, low - step);
+          } else {
+            high = up ? Math.min(maxT, high + step) : Math.max(minT, high - step);
+          }
+          // Only couple if the new band would be narrower than the
+          // configured deadband. Push the OTHER setpoint outward by exactly
+          // enough to restore the deadband; if that hits min/max, clamp
+          // both ends so the band still fits.
+          if (differential > 0 && (high - low) < differential) {
+            if (isHeat) {
+              const newHigh = low + differential;
+              if (newHigh > maxT) { high = maxT; low = maxT - differential; }
+              else { high = newHigh; }
+            } else {
+              const newLow = high - differential;
+              if (newLow < minT) { low = minT; high = minT + differential; }
+              else { low = newLow; }
             }
-          } else if (!up) {           // cool down, toward heat -> couple
-            high = Math.max(high - step, minT + gap);
-            low = high - gap;
-          } else {                    // cool up, away -> cool only
-            high = Math.min(maxT, high + step);
           }
           low = Math.min(Math.max(minT, low), maxT);
           high = Math.min(Math.max(minT, high), maxT);
