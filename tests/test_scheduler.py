@@ -71,6 +71,7 @@ def _make_scheduler(schedules=None, last_applied=None, *, unit="°C", entity_sta
     store._data = {
         "schedules": schedules or [],
         "last_applied": dict(last_applied or {}),
+        "settings": {"setpoint_differential": 2, "setpoint_differential_unit": "F"},
     }
     store._save = AsyncMock()
 
@@ -724,3 +725,46 @@ class TestApplyNow:
             res = await sched.apply_now("missing")
         assert res["applied"] == []
         assert "not found" in res["error"]
+
+
+class TestSettingsServices:
+    """ha_settings_get / ha_settings_update — read and patch the UI setting
+    that the card uses to enforce min heat/cool gap (mirrors the Airzone
+    backend's differential, but enforced in HA so the user can disable
+    device-side correction)."""
+
+    async def test_settings_get_returns_defaults(self):
+        sched, hass, store, reg = _make_scheduler()
+        with (
+            patch("custom_components.airzone_cloud.scheduler.async_track_time_interval", return_value=lambda: None),
+            patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg),
+            patch("custom_components.airzone_cloud.scheduler.datetime") as dt,
+        ):
+            dt.now.return_value = SAT
+            await sched.async_start()
+            handlers = {c.args[1]: c.args[2] for c in hass.services.async_register.call_args_list}
+            res = await handlers["ha_settings_get"](MagicMock())
+        assert res["settings"]["setpoint_differential"] == 2
+        assert res["settings"]["setpoint_differential_unit"] == "F"
+
+    async def test_settings_update_patches_and_returns(self):
+        sched, hass, store, reg = _make_scheduler()
+        with (
+            patch("custom_components.airzone_cloud.scheduler.async_track_time_interval", return_value=lambda: None),
+            patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg),
+            patch("custom_components.airzone_cloud.scheduler.datetime") as dt,
+        ):
+            dt.now.return_value = SAT
+            await sched.async_start()
+            handlers = {c.args[1]: c.args[2] for c in hass.services.async_register.call_args_list}
+            call = MagicMock()
+            call.data = {"changes": {"setpoint_differential": 3, "setpoint_differential_unit": "C"}}
+            res = await handlers["ha_settings_update"](call)
+        assert res["settings"]["setpoint_differential"] == 3
+        assert res["settings"]["setpoint_differential_unit"] == "C"
+        # Re-read via the get handler — change persisted.
+        get_call = MagicMock()
+        get_call.data = {}
+        # Use same handlers map.
+        re_get = await handlers["ha_settings_get"](get_call)
+        assert re_get["settings"]["setpoint_differential"] == 3

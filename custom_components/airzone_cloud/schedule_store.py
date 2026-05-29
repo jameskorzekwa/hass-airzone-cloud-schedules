@@ -20,9 +20,13 @@ Schedule dict shape::
       "setpoint_heat": float | None,   # Celsius, used for auto/heat_cool (target_temp_low)
       "setpoint_cool": float | None,   # Celsius, used for auto/heat_cool (target_temp_high)
       "setpoint": float | None,        # Celsius, single value for non-auto modes
-      "season": str | None,            # winter | summer | None  (UI filter only)
-      "away": bool
+      "tags": [str]                    # free-form labels (UI filter / toggle only)
     }
+
+Tags are a generic, user-defined labelling system (e.g. ``"away"``,
+``"winter"``, ``"summer"``, or anything else). They replaced the old fixed
+``season``/``away`` fields; legacy schedules are migrated on load
+(``season`` value -> a tag, ``away: true`` -> a ``"away"`` tag).
 
 ``last_applied`` maps an Airzone device id to the last applied transition key
 ``"<schedule_id>@<fired_iso>"`` so a reconcile only (re)applies on a NEW period
@@ -35,12 +39,22 @@ fire is only re-applied if it happened AFTER our last reconcile (i.e., HA was
 actually down at the fire time). Without this, a missing/cleared
 ``last_applied`` would let the reconciler re-apply yesterday's morning
 schedule at midnight, clobbering whatever state has accumulated.
+
+``settings`` is a free-form dict of UI-facing preferences. Currently:
+
+* ``setpoint_differential`` (number) + ``setpoint_differential_unit`` ("F"/"C")
+  — the minimum gap the card enforces between heat and cool when bumping
+  setpoints in either the zone or the schedule UI. Mirrors the Airzone
+  backend's differential setting; the user disables enforcement on the
+  device side and we enforce it here in the UI instead, so the device
+  doesn't quietly widen the band an hour after we set it.
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -48,24 +62,94 @@ from homeassistant.helpers.storage import Store
 STORAGE_KEY = "airzone_cloud_ha_schedules"
 STORAGE_VERSION = 1
 
+# Sensible first-install default: 2°F (the Airzone backend's own default).
+# Stored with the unit it was entered in to avoid round-trip rounding.
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "setpoint_differential": 2,
+    "setpoint_differential_unit": "F",
+}
+
+
+def normalize_tags(value: Any) -> list[str]:
+    """Coerce arbitrary input into a clean tag list.
+
+    Accepts a list (or a bare string); strips whitespace, drops empties, and
+    de-duplicates case-insensitively while preserving order and the first
+    casing seen. Anything falsy yields ``[]``.
+    """
+    if not value:
+        return []
+    if isinstance(value, str):
+        value = [value]
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if item is None:
+            continue
+        tag = str(item).strip()
+        if not tag:
+            continue
+        key = tag.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(tag)
+    return out
+
+
+def migrate_schedule_tags(sched: dict) -> dict:
+    """Fold the legacy ``season``/``away`` fields into the generic ``tags`` list.
+
+    Mutates and returns ``sched``. If ``tags`` is already present it is just
+    normalized; otherwise it is seeded from any legacy ``season`` value and an
+    ``away: true`` flag. The legacy keys are always removed.
+    """
+    tags = list(sched["tags"]) if isinstance(sched.get("tags"), list) else []
+    if not tags:
+        season = sched.get("season")
+        if season:
+            tags.append(season)
+        if sched.get("away"):
+            tags.append("away")
+    sched.pop("season", None)
+    sched.pop("away", None)
+    sched["tags"] = normalize_tags(tags)
+    return sched
+
 
 class HAScheduleStore:
     """HA-owned schedule definitions + per-device last-applied transition state."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         self._store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
-        self._data: dict = {"schedules": [], "last_applied": {}, "last_reconciled_at": None}
+        self._data: dict = {
+            "schedules": [],
+            "last_applied": {},
+            "last_reconciled_at": None,
+            "settings": dict(DEFAULT_SETTINGS),
+        }
 
     async def load(self) -> None:
         stored = await self._store.async_load()
         if stored and isinstance(stored, dict):
+            settings = dict(DEFAULT_SETTINGS)
+            settings.update(stored.get("settings") or {})
             self._data = {
                 "schedules": stored.get("schedules", []),
                 "last_applied": stored.get("last_applied", {}),
                 "last_reconciled_at": stored.get("last_reconciled_at"),
+                "settings": settings,
             }
+            # Migrate legacy season/away fields into generic tags.
+            for sched in self._data["schedules"]:
+                migrate_schedule_tags(sched)
         else:
-            self._data = {"schedules": [], "last_applied": {}, "last_reconciled_at": None}
+            self._data = {
+                "schedules": [],
+                "last_applied": {},
+                "last_reconciled_at": None,
+                "settings": dict(DEFAULT_SETTINGS),
+            }
 
     async def _save(self) -> None:
         await self._store.async_save(self._data)
@@ -82,14 +166,18 @@ class HAScheduleStore:
         sched = dict(schedule)
         sched.setdefault("id", uuid.uuid4().hex)
         sched.setdefault("enabled", True)
-        sched.setdefault("season", None)
-        sched.setdefault("away", False)
+        migrate_schedule_tags(sched)  # normalize tags + drop any legacy season/away
         self._data["schedules"].append(sched)
         await self._save()
         return sched
 
     async def update_schedule(self, schedule_id: str, changes: dict) -> dict | None:
         changes = {k: v for k, v in changes.items() if k != "id"}  # never let id change
+        if "tags" in changes:
+            changes["tags"] = normalize_tags(changes["tags"])
+        # Legacy keys are no longer stored; never let them sneak back in.
+        changes.pop("season", None)
+        changes.pop("away", None)
         for sched in self._data["schedules"]:
             if sched.get("id") == schedule_id:
                 sched.update(changes)
@@ -141,3 +229,16 @@ class HAScheduleStore:
     async def set_last_reconciled_at(self, dt: datetime) -> None:
         self._data["last_reconciled_at"] = dt.isoformat(timespec="seconds")
         await self._save()
+
+    # --- settings ---
+
+    def get_settings(self) -> dict:
+        return dict(self._data.get("settings") or {})
+
+    async def update_settings(self, changes: dict) -> dict:
+        """Patch the settings dict and persist. Returns the new settings."""
+        settings = dict(self._data.get("settings") or {})
+        settings.update(changes)
+        self._data["settings"] = settings
+        await self._save()
+        return settings

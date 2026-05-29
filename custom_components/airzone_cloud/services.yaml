@@ -73,7 +73,7 @@ patch_installation_schedule:
 
 toggle_schedule:
   name: "Toggle Schedule"
-  description: "Enable or disable schedules by name and/or tag filters (season, away)."
+  description: "Enable or disable schedules by name and/or tags."
   fields:
     config_entry:
       name: Config Entry
@@ -84,29 +84,21 @@ toggle_schedule:
           integration: airzone_cloud
     schedule_name:
       name: Schedule Name(s)
-      description: One or more schedule names to toggle. Can be combined with season/away filters.
+      description: One or more schedule names to toggle. Can be combined with tags.
       required: false
       example: "Winter Day"
       selector:
         object:
-    season:
-      name: Season
-      description: Filter schedules by season tag (winter or summer).
+    tags:
+      name: Tags
+      description: One or more tags to match. A schedule is selected if its name matches OR it carries ANY of these tags.
       required: false
+      example: '["away", "winter"]'
       selector:
-        select:
-          options:
-            - "winter"
-            - "summer"
-    away:
-      name: Away
-      description: Filter by away tag. true = only away schedules, false = only non-away schedules.
-      required: false
-      selector:
-        boolean:
+        object:
     all:
       name: All
-      description: Toggle all schedules. When true, ignores name/season/away filters.
+      description: Toggle all schedules. When true, ignores name/tag filters.
       required: false
       selector:
         boolean:
@@ -119,7 +111,7 @@ toggle_schedule:
 
 get_schedule_tags:
   name: "Get Schedule Tags"
-  description: "Gets locally-stored tags (season, away) for all schedules."
+  description: "Gets the locally-stored tags for all schedules."
   fields:
     config_entry:
       name: Config Entry
@@ -131,7 +123,7 @@ get_schedule_tags:
 
 set_schedule_tags:
   name: "Set Schedule Tags"
-  description: "Sets tags (season, away) for a specific schedule. Tags are stored locally."
+  description: "Sets the tags for a specific schedule (replaces the existing tags). Tags are stored locally."
   fields:
     config_entry:
       name: Config Entry
@@ -146,18 +138,10 @@ set_schedule_tags:
       required: true
       selector:
         text:
-    season:
-      name: Season
-      description: "Season tag: winter, summer, or leave empty to clear."
-      required: false
+    tags:
+      name: Tags
+      description: The full list of tags for this schedule. Pass an empty list to clear all tags.
+      required: true
+      example: '["away", "winter"]'
       selector:
-        select:
-          options:
-            - "winter"
-            - "summer"
-    away:
-      name: Away
-      description: Whether this is an away/vacation schedule.
-      required: false
-      selector:
-        boolean:
+        object:
