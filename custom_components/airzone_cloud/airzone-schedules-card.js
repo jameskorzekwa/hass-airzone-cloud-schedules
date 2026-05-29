@@ -43,9 +43,26 @@ class AirzoneSchedulesCard extends HTMLElement {
     this._initialized = false;
     this._useFah = localStorage.getItem('az-temp-unit') !== 'C';
     this._activeTab = localStorage.getItem('az-active-tab') || 'schedules';
-    this._filterSeason = null; // null = all, 'winter', 'summer'
-    this._filterAway = null;   // null = all, true, false
+    this._filterTags = []; // active tag filters (OR semantics); empty = show all
     this._lastScheduleLoad = 0;
+    // Server-backed settings (the Airzone deadband / minimum dual setpoint
+    // gap the card enforces). Populated by _loadSettings during init;
+    // defaults match the store's first-install default (2°F).
+    this._settings = { setpoint_differential: 2, setpoint_differential_unit: 'F' };
+  }
+
+  // Minimum gap the card enforces between heat and cool in dual-setpoint
+  // mode (zones AND schedules). Returned in the requested unit so callers
+  // working in either °C (schedule store) or display unit (zone steppers)
+  // both get a sensible number.
+  _getDifferential(unit) {
+    const v = Number((this._settings && this._settings.setpoint_differential) || 0);
+    if (!v) return 0;
+    const u = (this._settings && this._settings.setpoint_differential_unit) || 'F';
+    if (u === unit) return v;
+    if (u === 'F' && unit === 'C') return v / 1.8;
+    if (u === 'C' && unit === 'F') return v * 1.8;
+    return v;
   }
 
   _displayTemp(celsius) {
@@ -305,6 +322,7 @@ class AirzoneSchedulesCard extends HTMLElement {
             <button class="az-unit-btn ${this._useFah ? 'active' : ''}" id="az-unit-f">°F</button>
           </div>
           <button class="az-btn az-btn-outline az-btn-sm" id="az-refresh"><ha-icon icon="mdi:refresh" style="--mdc-icon-size: 16px;"></ha-icon> Refresh</button>
+          <button class="az-btn az-btn-outline az-btn-icon az-btn-sm" id="az-settings" title="Settings"><ha-icon icon="mdi:cog-outline" style="--mdc-icon-size: 18px;"></ha-icon></button>
           <button class="az-btn az-btn-primary az-btn-sm" id="az-add" style="display:${this._activeTab === 'schedules' ? 'inline-flex' : 'none'}"><ha-icon icon="mdi:plus" style="--mdc-icon-size: 16px;"></ha-icon> New</button>
         </div>
       </div>
@@ -313,14 +331,8 @@ class AirzoneSchedulesCard extends HTMLElement {
         <button class="az-tab ${this._activeTab === 'schedules' ? 'active' : ''}" data-tab="schedules"><ha-icon icon="mdi:calendar-clock"></ha-icon> Schedules</button>
       </div>
       <div id="az-filters" class="az-filters" style="display:${this._activeTab === 'schedules' ? 'flex' : 'none'}">
-        <span class="az-filter-label">Season:</span>
-        <button class="az-filter-btn active" data-filter="season" data-value="all">All</button>
-        <button class="az-filter-btn" data-filter="season" data-value="winter"><ha-icon icon="mdi:snowflake"></ha-icon> Winter</button>
-        <button class="az-filter-btn" data-filter="season" data-value="summer"><ha-icon icon="mdi:white-balance-sunny"></ha-icon> Summer</button>
-        <span class="az-filter-label" style="margin-left:12px;">Away:</span>
-        <button class="az-filter-btn active" data-filter="away" data-value="all">All</button>
-        <button class="az-filter-btn" data-filter="away" data-value="yes"><ha-icon icon="mdi:airplane"></ha-icon> Away</button>
-        <button class="az-filter-btn" data-filter="away" data-value="no"><ha-icon icon="mdi:home"></ha-icon> Not Away</button>
+        <span class="az-filter-label">Tags:</span>
+        <span id="az-tag-filters" class="az-tag-filters"></span>
       </div>
       <div id="az-tab-schedules" class="az-list" style="display:${this._activeTab === 'schedules' ? '' : 'none'}">
         <div class="az-loading"><div class="az-spinner"></div><br/>Loading schedules…</div>
@@ -337,12 +349,11 @@ class AirzoneSchedulesCard extends HTMLElement {
       else this._renderZones();
     });
     card.querySelector('#az-add').addEventListener('click', () => this._openEditor(null));
+    card.querySelector('#az-settings').addEventListener('click', () => this._openSettingsDialog());
     card.querySelectorAll('.az-tab').forEach(btn => {
       btn.addEventListener('click', () => this._switchTab(btn.dataset.tab));
     });
-    card.querySelectorAll('.az-filter-btn').forEach(btn => {
-      btn.addEventListener('click', () => this._setFilter(btn.dataset.filter, btn.dataset.value));
-    });
+    this._renderTagFilters();
   }
 
   _switchTab(tab) {
@@ -362,17 +373,53 @@ class AirzoneSchedulesCard extends HTMLElement {
     if (tab === 'zones') this._renderZones();
   }
 
-  _setFilter(type, value) {
-    if (type === 'season') {
-      this._filterSeason = value === 'all' ? null : value;
-    } else if (type === 'away') {
-      this._filterAway = value === 'all' ? null : value === 'yes';
-    }
-    // Update active states on filter buttons
-    this.querySelectorAll(`.az-filter-btn[data-filter="${type}"]`).forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.value === value);
-    });
+  _escHtml(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  _escAttr(s) {
+    return this._escHtml(s).replace(/"/g, '&quot;');
+  }
+
+  // All distinct tags currently in use across schedules, sorted.
+  _allTags() {
+    const set = new Set();
+    (this._schedules || []).forEach(s => (s.tags || []).forEach(t => set.add(t)));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }
+
+  _toggleTagFilter(tag) {
+    const i = this._filterTags.indexOf(tag);
+    if (i >= 0) this._filterTags.splice(i, 1);
+    else this._filterTags.push(tag);
+    this._renderTagFilters();
     this._renderList();
+  }
+
+  // Render the clickable tag-filter chips. Drops any active filter whose tag
+  // no longer exists so the list can never filter down to nothing.
+  _renderTagFilters() {
+    const wrap = this.querySelector('#az-tag-filters');
+    if (!wrap) return;
+    const tags = this._allTags();
+    this._filterTags = this._filterTags.filter(t => tags.includes(t));
+    if (!tags.length) {
+      wrap.innerHTML = '<span style="color:var(--az-text2); font-size:0.85em;">No tags yet</span>';
+      return;
+    }
+    const chips = [`<button class="az-filter-btn ${this._filterTags.length === 0 ? 'active' : ''}" data-tag="">All</button>`];
+    tags.forEach(t => {
+      const on = this._filterTags.includes(t);
+      chips.push(`<button class="az-filter-btn ${on ? 'active' : ''}" data-tag="${this._escAttr(t)}">${this._escHtml(t)}</button>`);
+    });
+    wrap.innerHTML = chips.join('');
+    wrap.querySelectorAll('.az-filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const t = btn.dataset.tag;
+        if (!t) { this._filterTags = []; this._renderTagFilters(); this._renderList(); }
+        else this._toggleTagFilter(t);
+      });
+    });
   }
 
   _setUnit(useFah) {
@@ -388,7 +435,26 @@ class AirzoneSchedulesCard extends HTMLElement {
 
   async _loadData() {
     await this._loadDevices();
+    await this._loadSettings();
     await this._loadSchedules();
+  }
+
+  async _loadSettings() {
+    try {
+      const resp = await this._hass.callWS({
+        type: 'call_service', domain: 'airzone_cloud', service: 'ha_settings_get',
+        service_data: {}, return_response: true,
+      });
+      const raw = (resp && (resp.response || resp)) || {};
+      if (raw.settings && typeof raw.settings === 'object') {
+        this._settings = Object.assign({}, this._settings, raw.settings);
+      }
+    } catch (err) {
+      // Older integration versions don't expose ha_settings_get — keep
+      // whatever defaults the constructor set. Logged so it's visible if
+      // an upgrade is needed, but not fatal.
+      console.warn('Airzone settings unavailable (using defaults):', err && err.message);
+    }
   }
 
   async _loadDevices() {
@@ -436,13 +502,9 @@ class AirzoneSchedulesCard extends HTMLElement {
     list.innerHTML = '';
     let sorted = [...this._schedules].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
-    // Apply filters
-    if (this._filterSeason !== null || this._filterAway !== null) {
-      sorted = sorted.filter(s => {
-        if (this._filterSeason !== null && (s.season || null) !== this._filterSeason) return false;
-        if (this._filterAway !== null && !!s.away !== this._filterAway) return false;
-        return true;
-      });
+    // Apply tag filters (OR: show a schedule if it has ANY active filter tag).
+    if (this._filterTags.length) {
+      sorted = sorted.filter(s => this._filterTags.some(ft => (s.tags || []).includes(ft)));
     }
 
     if (!sorted.length) {
@@ -480,13 +542,9 @@ class AirzoneSchedulesCard extends HTMLElement {
       const el = document.createElement('div');
       el.className = 'az-schedule';
       el.dataset.sid = s.id;
-      const badgesHtml = (() => {
-        const b = [];
-        if (s.season === 'winter') b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#3498db22;color:#3498db;padding:4px 10px;border-radius:8px;font-weight:600;"><ha-icon icon="mdi:snowflake" style="--mdc-icon-size:14px;"></ha-icon> Winter</span>');
-        if (s.season === 'summer') b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#e7743422;color:#e74c3c;padding:4px 10px;border-radius:8px;font-weight:600;"><ha-icon icon="mdi:white-balance-sunny" style="--mdc-icon-size:14px;"></ha-icon> Summer</span>');
-        if (s.away) b.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#f39c1222;color:#f39c12;padding:4px 10px;border-radius:8px;font-weight:600;"><ha-icon icon="mdi:airplane" style="--mdc-icon-size:14px;"></ha-icon> Away</span>');
-        return b.join('');
-      })();
+      const badgesHtml = (s.tags || [])
+        .map(t => `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--az-surface);border:1px solid var(--az-border);color:var(--az-text2);padding:4px 10px;border-radius:8px;font-weight:600;"><ha-icon icon="mdi:tag-outline" style="--mdc-icon-size:14px;"></ha-icon> ${this._escHtml(t)}</span>`)
+        .join('');
       const deviceHtml = deviceCount
         ? '<span class="az-devices" title="' + deviceNamesStr + '"><ha-icon icon="mdi:map-marker-outline" style="--mdc-icon-size: 15px; flex-shrink: 0;"></ha-icon> <span style="overflow:hidden; text-overflow:ellipsis;">' + deviceNamesStr + '</span></span>'
         : '';
@@ -850,12 +908,10 @@ class AirzoneSchedulesCard extends HTMLElement {
 
       // Dual (heat_cool) inline setpoint steppers. The clicked setpoint
       // moves independently — coupling kicks in ONLY when the resulting
-      // band would be narrower than the configured Airzone Auto deadband
-      // (configurable on the backend, not exposed to HA). Users with a
-      // backend deadband set their card config `setpoint_differential`
-      // to that value (e.g. `setpoint_differential: 2`); the default of 0
-      // disables coupling entirely so the two setpoints move independently
-      // and the user only sees an error if the backend rejects the band.
+      // band would be narrower than the configured deadband. The deadband
+      // is now read from the persisted UI setting (gear icon → Settings),
+      // so it can be tuned per-install without YAML and is honored across
+      // both zone and schedule steppers.
       el.querySelectorAll('.az-zone-sp-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
           const eid = btn.dataset.entity;
@@ -868,7 +924,10 @@ class AirzoneSchedulesCard extends HTMLElement {
           const step = haFah ? 1 : (a.target_temp_step || 0.5);
           const minT = a.min_temp != null ? a.min_temp : (haFah ? 59 : 15);
           const maxT = a.max_temp != null ? a.max_temp : (haFah ? 86 : 30);
-          const differential = Number(this.config && this.config.setpoint_differential) || 0;
+          // Entity attrs (low/high/min/max) are in HA's unit, so request
+          // the differential in that same unit for an apples-to-apples
+          // gap check.
+          const differential = this._getDifferential(haFah ? 'F' : 'C');
           const up = btn.dataset.dir === 'up';
           const isHeat = btn.dataset.kind === 'heat';
           // Move just the clicked setpoint first.
@@ -937,6 +996,78 @@ class AirzoneSchedulesCard extends HTMLElement {
     }
   }
 
+  // Settings dialog (gear icon in the header). One field today: the
+  // setpoint differential the card enforces between heat and cool in
+  // dual-setpoint mode. This MIRRORS the Airzone backend's deadband; the
+  // user typically sets that to 0 on the device side (to stop the device
+  // from quietly widening the band ~1h after we write it) and lets HA
+  // own the enforcement here.
+  _openSettingsDialog() {
+    const unit = this._useFah ? 'F' : 'C';
+    const unitLabel = this._unitLabel();
+    // Current value shown in the user's display unit, rounded to a whole
+    // degree (matches the input granularity).
+    const current = Math.round(this._getDifferential(unit));
+
+    const overlay = document.createElement('dialog');
+    overlay.className = 'az-editor-overlay';
+    overlay.innerHTML = `
+      <div class="az-editor">
+        <div class="az-editor-header">
+          <h3 style="display:flex; align-items:center; gap:6px;"><ha-icon icon="mdi:cog-outline"></ha-icon> Settings</h3>
+          <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-close" title="Close"><ha-icon icon="mdi:close" style="--mdc-icon-size:18px;"></ha-icon></button>
+        </div>
+        <div class="az-editor-body">
+          <div class="az-field">
+            <label>Setpoint differential (${unitLabel})</label>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <input type="number" id="az-diff-input" min="0" max="20" step="1" value="${current}" style="width:100px;"/>
+              <span style="color:var(--az-text2); font-size:0.9em;">minimum gap enforced between heat and cool</span>
+            </div>
+            <div style="margin-top:10px; color:var(--az-text2); font-size:0.85em; line-height:1.4;">
+              Mirrors the Airzone backend's deadband. Set the Airzone Cloud
+              app's differential to 0 to prevent the device from auto-correcting
+              the band ~1h after a write; HA enforces this value instead so
+              the steppers never produce a gap below it.
+            </div>
+          </div>
+        </div>
+        <div class="az-editor-footer">
+          <button class="az-btn az-btn-outline az-close">Cancel</button>
+          <button class="az-btn az-btn-primary" id="az-diff-save">Save</button>
+        </div>
+      </div>
+    `;
+    this.querySelector('ha-card').appendChild(overlay);
+    overlay.showModal();
+
+    const closeOverlay = () => { overlay.close(); overlay.remove(); };
+    overlay.querySelectorAll('.az-close').forEach(btn => btn.addEventListener('click', closeOverlay));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeOverlay(); });
+
+    overlay.querySelector('#az-diff-save').addEventListener('click', async () => {
+      const raw = parseInt(overlay.querySelector('#az-diff-input').value, 10);
+      if (isNaN(raw) || raw < 0 || raw > 20) {
+        this._toast('Differential must be a whole number between 0 and 20', true);
+        return;
+      }
+      try {
+        const resp = await this._hass.callWS({
+          type: 'call_service', domain: 'airzone_cloud', service: 'ha_settings_update',
+          service_data: { changes: { setpoint_differential: raw, setpoint_differential_unit: unit } },
+          return_response: true,
+        });
+        const raw2 = (resp && (resp.response || resp)) || {};
+        if (raw2.settings) this._settings = Object.assign({}, this._settings, raw2.settings);
+        else this._settings = Object.assign({}, this._settings, { setpoint_differential: raw, setpoint_differential_unit: unit });
+        this._toast('Settings saved');
+        closeOverlay();
+      } catch (err) {
+        this._toast('Error saving settings: ' + ((err && err.message) || 'unknown'), true);
+      }
+    });
+  }
+
   _openEditor(schedule, isDuplicate = false) {
     const isNew = !schedule || isDuplicate;
     const useDefaults = !schedule;
@@ -953,8 +1084,7 @@ class AirzoneSchedulesCard extends HTMLElement {
     const days = useDefaults ? [1,2,3,4,5] : (schedule.days || []);
     const pspeed = useDefaults ? 'auto' : (schedule.pspeed || 'auto');
     const deviceIds = useDefaults ? [] : (schedule.device_ids || []);
-    const edSeason = schedule && schedule.season ? schedule.season : '';
-    const edAway = !!(schedule && schedule.away);
+    let selectedTags = (schedule && Array.isArray(schedule.tags)) ? [...schedule.tags] : [];
     const edEnabled = isDuplicate ? true : (schedule ? schedule.enabled !== false : true);
 
     let selectedMode = mode;
@@ -1053,19 +1183,13 @@ class AirzoneSchedulesCard extends HTMLElement {
             </div>
           </div>
           <div class="az-field">
-            <label>Season</label>
-            <select id="ed-season">
-              <option value="" ${!edSeason ? 'selected' : ''}>None</option>
-              <option value="winter" ${edSeason === 'winter' ? 'selected' : ''}>Winter</option>
-              <option value="summer" ${edSeason === 'summer' ? 'selected' : ''}>Summer</option>
-            </select>
-          </div>
-          <div class="az-field" style="margin-top: 8px; padding-top: 20px; border-top: 1px solid var(--az-border);">
-            <label>Away Schedule</label>
-            <label style="display:flex; align-items:center; gap:12px; cursor:pointer; font-weight:500; text-transform:none; font-size:1em; color:var(--az-text); padding:8px;">
-              <input type="checkbox" id="ed-away" ${edAway ? 'checked' : ''} style="width:20px; height:20px; accent-color:var(--az-primary); cursor:pointer;">
-              This is an away/vacation schedule
-            </label>
+            <label>Tags</label>
+            <div id="ed-tags-selected" class="az-tags-selected"></div>
+            <div id="ed-tags-available" class="az-tags-available"></div>
+            <div class="az-tag-add-row">
+              <input type="text" id="ed-tag-new" placeholder="Create a new tag"/>
+              <button type="button" class="az-btn az-btn-outline az-btn-sm" id="ed-tag-add"><ha-icon icon="mdi:plus" style="--mdc-icon-size:16px;"></ha-icon> Add</button>
+            </div>
           </div>
         </div>
         <div class="az-editor-footer">
@@ -1118,11 +1242,71 @@ class AirzoneSchedulesCard extends HTMLElement {
     overlay.querySelector('#ed-temp-down').addEventListener('click', () => { if (tempVal == null) tempVal = this._useFah ? 70 : 21; tempVal = Math.max(minT, tempVal - step); tempDisplay.textContent = tempVal; tempTouched = true; });
     overlay.querySelector('#ed-temp-up').addEventListener('click', () => { if (tempVal == null) tempVal = this._useFah ? 70 : 21; tempVal = Math.min(maxT, tempVal + step); tempDisplay.textContent = tempVal; tempTouched = true; });
     const heatDisplay = overlay.querySelector('#ed-heat-display');
-    overlay.querySelector('#ed-heat-down').addEventListener('click', () => { if (tempValHeat == null) tempValHeat = this._useFah ? 66 : 19; tempValHeat = Math.max(minHeatT, tempValHeat - step); heatDisplay.textContent = tempValHeat; tempHeatTouched = true; });
-    overlay.querySelector('#ed-heat-up').addEventListener('click', () => { if (tempValHeat == null) tempValHeat = this._useFah ? 66 : 19; tempValHeat = Math.min(maxHeatT, tempValHeat + step); heatDisplay.textContent = tempValHeat; tempHeatTouched = true; });
     const coolDisplay = overlay.querySelector('#ed-cool-display');
-    overlay.querySelector('#ed-cool-down').addEventListener('click', () => { if (tempValCool == null) tempValCool = this._useFah ? 75 : 24; tempValCool = Math.max(minCoolT, tempValCool - step); coolDisplay.textContent = tempValCool; tempCoolTouched = true; });
-    overlay.querySelector('#ed-cool-up').addEventListener('click', () => { if (tempValCool == null) tempValCool = this._useFah ? 75 : 24; tempValCool = Math.min(maxCoolT, tempValCool + step); coolDisplay.textContent = tempValCool; tempCoolTouched = true; });
+    // Editor steppers use the same coupling logic as the inline cards: if
+    // bumping heat/cool would shrink the band below the configured
+    // differential, push the OTHER side out to preserve it. The dialog
+    // values live in display units, so request the diff in that unit.
+    const diffDisp = Math.max(this._useFah ? 1 : 0.5, this._getDifferential(this._useFah ? 'F' : 'C'));
+    const bumpDual = (which, up) => {
+      if (tempValHeat == null) tempValHeat = this._useFah ? 66 : 19;
+      if (tempValCool == null) tempValCool = this._useFah ? 75 : 24;
+      if (which === 'heat') {
+        tempValHeat = up ? Math.min(maxHeatT, tempValHeat + step) : Math.max(minHeatT, tempValHeat - step);
+        if ((tempValCool - tempValHeat) < diffDisp) {
+          tempValCool = Math.min(maxCoolT, tempValHeat + diffDisp);
+          if (tempValCool >= maxCoolT) tempValHeat = Math.max(minHeatT, tempValCool - diffDisp);
+        }
+        tempHeatTouched = true;
+      } else {
+        tempValCool = up ? Math.min(maxCoolT, tempValCool + step) : Math.max(minCoolT, tempValCool - step);
+        if ((tempValCool - tempValHeat) < diffDisp) {
+          tempValHeat = Math.max(minHeatT, tempValCool - diffDisp);
+          if (tempValHeat <= minHeatT) tempValCool = Math.min(maxCoolT, tempValHeat + diffDisp);
+        }
+        tempCoolTouched = true;
+      }
+      heatDisplay.textContent = tempValHeat;
+      coolDisplay.textContent = tempValCool;
+    };
+    overlay.querySelector('#ed-heat-down').addEventListener('click', () => bumpDual('heat', false));
+    overlay.querySelector('#ed-heat-up').addEventListener('click', () => bumpDual('heat', true));
+    overlay.querySelector('#ed-cool-down').addEventListener('click', () => bumpDual('cool', false));
+    overlay.querySelector('#ed-cool-up').addEventListener('click', () => bumpDual('cool', true));
+    // Tags: pick from existing (chips) or create a brand-new one. Fully
+    // generic — any label works (e.g. "away", "summer", "winter", anything).
+    const knownTags = this._allTags();
+    const renderTagEditor = () => {
+      const selWrap = overlay.querySelector('#ed-tags-selected');
+      const availWrap = overlay.querySelector('#ed-tags-available');
+      selWrap.innerHTML = selectedTags.length
+        ? selectedTags.map(t => `<span class="az-tag-chip" data-tag="${this._escAttr(t)}">${this._escHtml(t)} <ha-icon icon="mdi:close" style="--mdc-icon-size:14px;"></ha-icon></span>`).join('')
+        : '<span style="color:var(--az-text2); font-size:0.9em;">No tags yet</span>';
+      const avail = knownTags.filter(t => !selectedTags.some(s => s.toLowerCase() === t.toLowerCase()));
+      availWrap.innerHTML = avail.length
+        ? avail.map(t => `<span class="az-tag-chip add" data-tag="${this._escAttr(t)}"><ha-icon icon="mdi:plus" style="--mdc-icon-size:14px;"></ha-icon> ${this._escHtml(t)}</span>`).join('')
+        : '';
+      selWrap.querySelectorAll('.az-tag-chip').forEach(ch => ch.addEventListener('click', () => {
+        selectedTags = selectedTags.filter(t => t !== ch.dataset.tag);
+        renderTagEditor();
+      }));
+      availWrap.querySelectorAll('.az-tag-chip').forEach(ch => ch.addEventListener('click', () => {
+        selectedTags.push(ch.dataset.tag);
+        renderTagEditor();
+      }));
+    };
+    const addNewTag = () => {
+      const inp = overlay.querySelector('#ed-tag-new');
+      const v = (inp.value || '').trim();
+      if (v && !selectedTags.some(t => t.toLowerCase() === v.toLowerCase())) selectedTags.push(v);
+      inp.value = '';
+      renderTagEditor();
+    };
+    overlay.querySelector('#ed-tag-add').addEventListener('click', addNewTag);
+    overlay.querySelector('#ed-tag-new').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); addNewTag(); }
+    });
+    renderTagEditor();
     // Close
     const closeOverlay = () => { overlay.close(); overlay.remove(); };
     overlay.querySelectorAll('.az-close').forEach(btn => btn.addEventListener('click', closeOverlay));
@@ -1137,9 +1321,6 @@ class AirzoneSchedulesCard extends HTMLElement {
       const devIds = Array.from(overlay.querySelectorAll('.ed-device-checkbox:checked')).map(cb => cb.value);
       const edProgEnabled = overlay.querySelector('#ed-enabled').checked;
 
-      const seasonVal = overlay.querySelector('#ed-season').value || null;
-      const awayVal = overlay.querySelector('#ed-away').checked;
-
       const obj = {
         name: edName,
         enabled: edProgEnabled,
@@ -1149,8 +1330,7 @@ class AirzoneSchedulesCard extends HTMLElement {
         hour: edHour,
         minutes: edMin,
         device_ids: devIds,
-        season: seasonVal,
-        away: awayVal,
+        tags: selectedTags,
         setpoint: null,
         setpoint_heat: null,
         setpoint_cool: null,
@@ -1172,6 +1352,16 @@ class AirzoneSchedulesCard extends HTMLElement {
         }
         if (heatC >= coolC) {
           this._toast('Heat setpoint must be below cool setpoint', true);
+          return;
+        }
+        const minGapC = this._getDifferential('C');
+        if (minGapC > 0 && (coolC - heatC) < minGapC) {
+          const minGapDisp = this._getDifferential(this._useFah ? 'F' : 'C');
+          this._toast(
+            'Heat and cool must be at least ' + Math.round(minGapDisp) + this._unitLabel() +
+            ' apart (configured deadband). Open Settings to change.',
+            true,
+          );
           return;
         }
         obj.setpoint_heat = heatC;
@@ -1347,21 +1537,50 @@ class AirzoneSchedulesCard extends HTMLElement {
     const disp = this._toDisplay(curC) + (dir === 'up' ? 1 : -1) * (this._useFah ? 1 : 0.5);
     let newC = Math.round(this._toCelsius(disp) * 2) / 2;
     const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+    // Schedule store values are in °C, so compare gaps in °C. Floor at the
+    // historical 0.5°C safety floor so single-bumping still keeps SOME gap
+    // even when the user has the differential set to 0.
+    const diffC = Math.max(0.5, this._getDifferential('C'));
+    const round05 = (v) => Math.round(v * 2) / 2;
     if (kind === 'heat') {
-      const coolC = p.setpoint_cool != null ? p.setpoint_cool : 30.5;
-      newC = clamp(newC, 17, Math.min(28.5, coolC - 0.5));
+      newC = clamp(newC, 17, 28.5);
+      // Couple: if pushing heat up shrinks the band below diffC, walk cool
+      // out far enough to restore it. Mirrors the zone stepper.
+      const curCoolC = p.setpoint_cool != null ? p.setpoint_cool : 30.5;
+      let newCoolC = curCoolC;
+      if ((newCoolC - newC) < diffC) {
+        newCoolC = round05(newC + diffC);
+        if (newCoolC > 30.5) { newCoolC = 30.5; newC = round05(newCoolC - diffC); }
+      }
+      p.setpoint_heat = newC;
+      p.setpoint_cool = newCoolC;
     } else if (kind === 'cool') {
-      const heatC = p.setpoint_heat != null ? p.setpoint_heat : 17;
-      newC = clamp(newC, Math.max(19.5, heatC + 0.5), 30.5);
+      newC = clamp(newC, 19.5, 30.5);
+      const curHeatC = p.setpoint_heat != null ? p.setpoint_heat : 17;
+      let newHeatC = curHeatC;
+      if ((newC - newHeatC) < diffC) {
+        newHeatC = round05(newC - diffC);
+        if (newHeatC < 17) { newHeatC = 17; newC = round05(newHeatC + diffC); }
+      }
+      p.setpoint_cool = newC;
+      p.setpoint_heat = newHeatC;
     } else {
       newC = clamp(newC, 15, 30);
+      p.setpoint = newC;
     }
-    p[dkey] = newC;
     this._schedSpPending[sid] = p;
     // liveCard resolved above (the captured `el` can be a stale wrapper if
-    // the card was rebuilt by a prior mode-change patch).
-    const valEl = liveCard.querySelector('.az-sched-sp-val[data-kind="' + kind + '"]');
-    if (valEl) valEl.textContent = this._displayTemp(newC);
+    // the card was rebuilt by a prior mode-change patch). Repaint BOTH
+    // heat/cool numbers — coupling may have moved the unclicked side too.
+    if (kind === 'single') {
+      const valEl = liveCard.querySelector('.az-sched-sp-val[data-kind="single"]');
+      if (valEl) valEl.textContent = this._displayTemp(p.setpoint);
+    } else {
+      const heatEl = liveCard.querySelector('.az-sched-sp-val[data-kind="heat"]');
+      const coolEl = liveCard.querySelector('.az-sched-sp-val[data-kind="cool"]');
+      if (heatEl) heatEl.textContent = this._displayTemp(p.setpoint_heat);
+      if (coolEl) coolEl.textContent = this._displayTemp(p.setpoint_cool);
+    }
 
     clearTimeout(this._schedSpTimers[sid]);
     this._schedSpTimers[sid] = setTimeout(async () => {

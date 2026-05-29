@@ -419,6 +419,12 @@ class AirzoneScheduler:
         async def apply_now_svc(call: ServiceCall) -> dict:
             return await self.apply_now(call.data["schedule_id"])
 
+        async def settings_get(call: ServiceCall) -> dict:
+            return {"settings": store.get_settings()}
+
+        async def settings_update(call: ServiceCall) -> dict:
+            return {"settings": await store.update_settings(dict(call.data["changes"]))}
+
         self.hass.services.async_register(
             DOMAIN,
             "ha_schedule_add",
@@ -466,5 +472,19 @@ class AirzoneScheduler:
             "ha_schedule_apply_now",
             apply_now_svc,
             schema=vol.Schema({vol.Required("schedule_id"): cv.string}),
+            supports_response=SupportsResponse.OPTIONAL,
+        )
+        self.hass.services.async_register(
+            DOMAIN,
+            "ha_settings_get",
+            settings_get,
+            schema=vol.Schema({}),
+            supports_response=SupportsResponse.ONLY,
+        )
+        self.hass.services.async_register(
+            DOMAIN,
+            "ha_settings_update",
+            settings_update,
+            schema=vol.Schema({vol.Required("changes"): dict}),
             supports_response=SupportsResponse.OPTIONAL,
         )

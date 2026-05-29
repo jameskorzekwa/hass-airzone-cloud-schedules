@@ -6,7 +6,7 @@ existing automations keep working, but now read/write the HA store and let
 ``AirzoneScheduler`` apply the result. ``config_entry`` is still accepted for
 backward compatibility and is ignored. ``schedule_id`` is the HA schedule id;
 ``schedule_data`` is the HA schedule shape ({name, enabled, mode, days, hour,
-minutes, device_ids, setpoint/ setpoint_heat/ setpoint_cool, season, away}).
+minutes, device_ids, setpoint/ setpoint_heat/ setpoint_cool, tags}).
 
 The legacy ``patch_installation_schedules_activate`` is intentionally gone —
 Airzone's own scheduler is permanently deactivated; HA owns scheduling.
@@ -28,8 +28,7 @@ ATTR_SCHEDULE_ID = "schedule_id"
 ATTR_SCHEDULE_DATA = "schedule_data"
 ATTR_SCHEDULE_NAME = "schedule_name"
 ATTR_ENABLED = "enabled"
-ATTR_SEASON = "season"
-ATTR_AWAY = "away"
+ATTR_TAGS = "tags"
 ATTR_ALL = "all"
 
 GET_SCHEDULES_SCHEMA = vol.Schema({vol.Optional(ATTR_CONFIG_ENTRY): cv.string})
@@ -54,8 +53,7 @@ SET_SCHEDULE_TAGS_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_CONFIG_ENTRY): cv.string,
         vol.Required(ATTR_SCHEDULE_ID): cv.string,
-        vol.Optional(ATTR_SEASON): vol.Any("winter", "summer", None),
-        vol.Optional(ATTR_AWAY): cv.boolean,
+        vol.Required(ATTR_TAGS): vol.All(cv.ensure_list, [cv.string]),
     }
 )
 
@@ -63,8 +61,7 @@ TOGGLE_SCHEDULE_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_CONFIG_ENTRY): cv.string,
         vol.Optional(ATTR_SCHEDULE_NAME): vol.All(cv.ensure_list, [cv.string]),
-        vol.Optional(ATTR_SEASON): vol.Any("winter", "summer"),
-        vol.Optional(ATTR_AWAY): cv.boolean,
+        vol.Optional(ATTR_TAGS): vol.All(cv.ensure_list, [cv.string]),
         vol.Optional(ATTR_ALL): cv.boolean,
         vol.Required(ATTR_ENABLED): cv.boolean,
     }
@@ -118,33 +115,34 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def async_toggle_schedule(call: ServiceCall) -> None:
         store, scheduler = _store_scheduler()
         names = call.data.get(ATTR_SCHEDULE_NAME)
-        season = call.data.get(ATTR_SEASON)
-        away = call.data.get(ATTR_AWAY)
+        tags = call.data.get(ATTR_TAGS)
         toggle_all = call.data.get(ATTR_ALL, False)
         enabled = call.data[ATTR_ENABLED]
 
-        if not toggle_all and not names and season is None and away is None:
-            raise HomeAssistantError("Provide schedule_name, season, away, or all to select schedules")
+        if not toggle_all and not names and not tags:
+            raise HomeAssistantError("Provide schedule_name, tags, or all to select schedules")
 
         scheds = store.list_schedules()
-        if names:
-            wanted = {n.lower() for n in names}
-            matched = [s for s in scheds if (s.get("name") or "").lower() in wanted]
+        if toggle_all:
+            matched = list(scheds)
         else:
-            matched = list(scheds)  # all=true / tag-only; tag filters narrow below
-        if season is not None:
-            matched = [s for s in matched if s.get("season") == season]
-        if away is not None:
-            matched = [s for s in matched if bool(s.get("away")) == away]
+            # A schedule is selected if its name matches OR it carries ANY of
+            # the requested tags (union/OR across all selectors).
+            wanted_names = {n.lower() for n in (names or [])}
+            wanted_tags = {t.lower() for t in (tags or [])}
+            matched = []
+            for s in scheds:
+                name_hit = bool(wanted_names) and (s.get("name") or "").lower() in wanted_names
+                tag_hit = bool(wanted_tags) and any(str(t).lower() in wanted_tags for t in (s.get("tags") or []))
+                if name_hit or tag_hit:
+                    matched.append(s)
 
         if not matched:
             parts = []
             if names:
                 parts.append(f"names={names}")
-            if season is not None:
-                parts.append(f"season={season}")
-            if away is not None:
-                parts.append(f"away={away}")
+            if tags:
+                parts.append(f"tags={tags}")
             if toggle_all:
                 parts.append("all=true")
             raise HomeAssistantError(f"No schedules matched filters: {', '.join(parts) or '(none)'}")
@@ -160,19 +158,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     async def async_get_schedule_tags(call: ServiceCall) -> dict:
         store, _ = _store_scheduler()
-        return {
-            "tags": {s["id"]: {"season": s.get("season"), "away": bool(s.get("away"))} for s in store.list_schedules()}
-        }
+        return {"tags": {s["id"]: list(s.get("tags") or []) for s in store.list_schedules()}}
 
     async def async_set_schedule_tags(call: ServiceCall) -> None:
         store, scheduler = _store_scheduler()
         sid = call.data[ATTR_SCHEDULE_ID]
-        changes: dict = {}
-        if ATTR_SEASON in call.data:
-            changes["season"] = call.data[ATTR_SEASON]
-        if ATTR_AWAY in call.data:
-            changes["away"] = call.data[ATTR_AWAY]
-        sched = await store.update_schedule(sid, changes)
+        sched = await store.update_schedule(sid, {"tags": call.data[ATTR_TAGS]})
         if sched is None:
             raise HomeAssistantError(f"Schedule '{sid}' not found")
         await _apply(scheduler, [sched])

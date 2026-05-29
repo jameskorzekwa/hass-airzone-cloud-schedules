@@ -15,6 +15,7 @@ from custom_components.airzone_cloud.services import (
     ATTR_SCHEDULE_DATA,
     ATTR_SCHEDULE_ID,
     ATTR_SCHEDULE_NAME,
+    ATTR_TAGS,
     DELETE_SCHEDULE_SCHEMA,
     GET_SCHEDULES_SCHEMA,
     PATCH_SCHEDULE_SCHEMA,
@@ -67,8 +68,7 @@ SCHEDS = [
         "enabled": True,
         "mode": 1,
         "device_ids": ["d1"],
-        "season": "winter",
-        "away": False,
+        "tags": ["winter"],
     },
     {
         "id": "b",
@@ -76,10 +76,9 @@ SCHEDS = [
         "enabled": True,
         "mode": 2,
         "device_ids": ["d2"],
-        "season": "summer",
-        "away": False,
+        "tags": ["summer"],
     },
-    {"id": "c", "name": "Vacation", "enabled": False, "mode": 1, "device_ids": ["d1"], "season": None, "away": True},
+    {"id": "c", "name": "Vacation", "enabled": False, "mode": 1, "device_ids": ["d1"], "tags": ["away"]},
 ]
 
 
@@ -110,8 +109,16 @@ class TestSchemaValidation:
             TOGGLE_SCHEDULE_SCHEMA({})  # enabled required
 
     def test_set_tags_schema(self):
-        d = SET_SCHEDULE_TAGS_SCHEMA({ATTR_SCHEDULE_ID: "x", "season": "winter", "away": True})
-        assert d["season"] == "winter" and d["away"] is True
+        d = SET_SCHEDULE_TAGS_SCHEMA({ATTR_SCHEDULE_ID: "x", "tags": ["winter", "away"]})
+        assert d["tags"] == ["winter", "away"]
+        # bare string is coerced into a single-element list
+        assert SET_SCHEDULE_TAGS_SCHEMA({ATTR_SCHEDULE_ID: "x", "tags": "winter"})["tags"] == ["winter"]
+        with pytest.raises(vol.MultipleInvalid):
+            SET_SCHEDULE_TAGS_SCHEMA({ATTR_SCHEDULE_ID: "x"})  # tags required
+
+    def test_toggle_tags_schema(self):
+        d = TOGGLE_SCHEDULE_SCHEMA({ATTR_TAGS: ["winter", "away"], ATTR_ENABLED: True})
+        assert d[ATTR_TAGS] == ["winter", "away"]
 
 
 class TestRegistration:
@@ -194,14 +201,35 @@ class TestHandlers:
         await _handler(hass, "toggle_schedule")(_call(all=True, enabled=False))
         assert all(s["enabled"] is False for s in store.list_schedules())
 
-    async def test_toggle_filters_season_and_away(self):
+    async def test_toggle_filters_by_single_tag(self):
         hass, store, _ = _make_hass(SCHEDS)
         await async_setup_services(hass)
-        await _handler(hass, "toggle_schedule")(_call(all=True, season="winter", enabled=False))
+        await _handler(hass, "toggle_schedule")(_call(tags=["winter"], enabled=False))
         assert store.get_schedule("a")["enabled"] is False  # winter
         assert store.get_schedule("b")["enabled"] is True  # summer, untouched
-        await _handler(hass, "toggle_schedule")(_call(all=True, away=True, enabled=True))
-        assert store.get_schedule("c")["enabled"] is True  # away match
+
+    async def test_toggle_multiple_tags_is_or(self):
+        hass, store, _ = _make_hass(SCHEDS)
+        await async_setup_services(hass)
+        # ANY-of semantics: summer OR away selects both b and c.
+        await _handler(hass, "toggle_schedule")(_call(tags=["summer", "away"], enabled=True))
+        assert store.get_schedule("b")["enabled"] is True  # summer matched
+        assert store.get_schedule("c")["enabled"] is True  # away matched (was disabled)
+        assert store.get_schedule("a")["enabled"] is True  # winter not in filter -> untouched
+
+    async def test_toggle_name_or_tag_union(self):
+        hass, store, _ = _make_hass(SCHEDS)
+        await async_setup_services(hass)
+        # name OR tag: "Summer Night" by name + winter by tag -> a and b.
+        await _handler(hass, "toggle_schedule")(_call(schedule_name=["Summer Night"], tags=["winter"], enabled=False))
+        assert store.get_schedule("a")["enabled"] is False  # winter tag
+        assert store.get_schedule("b")["enabled"] is False  # name match
+
+    async def test_toggle_tag_match_is_case_insensitive(self):
+        hass, store, _ = _make_hass(SCHEDS)
+        await async_setup_services(hass)
+        await _handler(hass, "toggle_schedule")(_call(tags=["WINTER"], enabled=False))
+        assert store.get_schedule("a")["enabled"] is False
 
     async def test_toggle_requires_a_selector(self):
         hass, _, _ = _make_hass(SCHEDS)
@@ -225,9 +253,20 @@ class TestHandlers:
         hass, store, sched = _make_hass(SCHEDS)
         await async_setup_services(hass)
         tags = (await _handler(hass, "get_schedule_tags")(_call()))["tags"]
-        assert tags["a"] == {"season": "winter", "away": False}
-        assert tags["c"] == {"season": None, "away": True}
-        await _handler(hass, "set_schedule_tags")(_call(schedule_id="b", season="winter", away=True))
-        assert store.get_schedule("b")["season"] == "winter"
-        assert store.get_schedule("b")["away"] is True
+        assert tags["a"] == ["winter"]
+        assert tags["c"] == ["away"]
+        await _handler(hass, "set_schedule_tags")(_call(schedule_id="b", tags=["winter", "away"]))
+        assert store.get_schedule("b")["tags"] == ["winter", "away"]
         sched.async_reconcile.assert_awaited()
+
+    async def test_set_schedule_tags_clears_with_empty_list(self):
+        hass, store, _ = _make_hass(SCHEDS)
+        await async_setup_services(hass)
+        await _handler(hass, "set_schedule_tags")(_call(schedule_id="a", tags=[]))
+        assert store.get_schedule("a")["tags"] == []
+
+    async def test_set_schedule_tags_not_found(self):
+        hass, _, _ = _make_hass(SCHEDS)
+        await async_setup_services(hass)
+        with pytest.raises(HomeAssistantError, match="not found"):
+            await _handler(hass, "set_schedule_tags")(_call(schedule_id="zzz", tags=["x"]))
