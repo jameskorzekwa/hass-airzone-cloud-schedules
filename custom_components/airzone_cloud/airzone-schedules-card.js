@@ -234,6 +234,27 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-filter-btn.active { background:var(--az-primary); color:var(--text-primary-color, #fff); border-color:var(--az-primary); }
         .az-filter-btn ha-icon { --mdc-icon-size: 14px; }
 
+        /* Tag filter chips row (above the schedule list) */
+        .az-tag-filters { display:inline-flex; flex-wrap:wrap; gap:8px; align-items:center; }
+
+        /* --- Tag editor (inside the schedule dialog) --- */
+        .az-tags-sublabel { font-size:0.72em; font-weight:700; color:var(--az-text2); text-transform:uppercase; letter-spacing:0.6px; margin:2px 0 8px; }
+        .az-tags-selected { display:flex; flex-wrap:wrap; gap:8px; min-height:34px; align-items:center; padding:10px 12px; border:2px solid var(--az-border); border-radius:12px; background:var(--primary-background-color, var(--az-surface)); }
+        .az-tags-empty { color:var(--az-text2); font-size:0.95em; font-style:italic; }
+        .az-tags-available { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+        /* Selected tag: solid primary pill with a removable × */
+        .az-tag-chip { display:inline-flex; align-items:center; gap:6px; background:var(--az-primary); color:var(--text-primary-color, #fff); font-size:0.92em; font-weight:600; padding:6px 6px 6px 12px; border-radius:16px; border:1px solid var(--az-primary); cursor:default; line-height:1; }
+        .az-tag-chip .az-tag-x { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border-radius:50%; cursor:pointer; opacity:0.8; transition:background 0.15s, opacity 0.15s; }
+        .az-tag-chip .az-tag-x:hover { background:rgba(0,0,0,0.22); opacity:1; }
+        .az-tag-chip .az-tag-x ha-icon { --mdc-icon-size:15px; }
+        /* Suggestion chip: dashed outline, click to add */
+        .az-tag-chip.add { background:transparent; color:var(--az-text2); border:1px dashed var(--az-border); padding:6px 12px; cursor:pointer; transition:all 0.15s; }
+        .az-tag-chip.add:hover { border-color:var(--az-primary); color:var(--az-primary); border-style:solid; }
+        .az-tag-chip.add ha-icon { --mdc-icon-size:14px; }
+        .az-tag-add-row { display:flex; gap:8px; margin-top:14px; }
+        .az-tag-add-row input { flex:1; }
+        .az-tag-add-row .az-btn { flex-shrink:0; }
+
         .az-zone { background:var(--card-background-color, var(--az-surface)); border-radius:16px; overflow:hidden; border:1px solid var(--az-border); transition:all 0.2s; box-shadow: 0 4px 16px rgba(0,0,0,0.06); display:flex; flex-direction:column; padding:18px 20px; gap:14px; }
         .az-zone:hover { border-color:var(--az-primary); transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.1); }
         .az-zone-header { display:flex; align-items:center; gap:14px; }
@@ -1189,9 +1210,12 @@ class AirzoneSchedulesCard extends HTMLElement {
           <div class="az-field">
             <label>Tags</label>
             <div id="ed-tags-selected" class="az-tags-selected"></div>
-            <div id="ed-tags-available" class="az-tags-available"></div>
+            <div id="ed-tags-available-wrap" style="display:none;">
+              <div class="az-tags-sublabel">Add existing</div>
+              <div id="ed-tags-available" class="az-tags-available"></div>
+            </div>
             <div class="az-tag-add-row">
-              <input type="text" id="ed-tag-new" placeholder="Create a new tag"/>
+              <input type="text" id="ed-tag-new" placeholder="Create a new tag…"/>
               <button type="button" class="az-btn az-btn-outline az-btn-sm" id="ed-tag-add"><ha-icon icon="mdi:plus" style="--mdc-icon-size:16px;"></ha-icon> Add</button>
             </div>
           </div>
@@ -1283,17 +1307,20 @@ class AirzoneSchedulesCard extends HTMLElement {
     const renderTagEditor = () => {
       const selWrap = overlay.querySelector('#ed-tags-selected');
       const availWrap = overlay.querySelector('#ed-tags-available');
+      const availOuter = overlay.querySelector('#ed-tags-available-wrap');
       selWrap.innerHTML = selectedTags.length
-        ? selectedTags.map(t => `<span class="az-tag-chip" data-tag="${this._escAttr(t)}">${this._escHtml(t)} <ha-icon icon="mdi:close" style="--mdc-icon-size:14px;"></ha-icon></span>`).join('')
-        : '<span style="color:var(--az-text2); font-size:0.9em;">No tags yet</span>';
+        ? selectedTags.map(t => `<span class="az-tag-chip" data-tag="${this._escAttr(t)}">${this._escHtml(t)}<span class="az-tag-x" data-tag="${this._escAttr(t)}" title="Remove tag"><ha-icon icon="mdi:close"></ha-icon></span></span>`).join('')
+        : '<span class="az-tags-empty">No tags yet</span>';
       const avail = knownTags.filter(t => !selectedTags.some(s => s.toLowerCase() === t.toLowerCase()));
-      availWrap.innerHTML = avail.length
-        ? avail.map(t => `<span class="az-tag-chip add" data-tag="${this._escAttr(t)}"><ha-icon icon="mdi:plus" style="--mdc-icon-size:14px;"></ha-icon> ${this._escHtml(t)}</span>`).join('')
-        : '';
-      selWrap.querySelectorAll('.az-tag-chip').forEach(ch => ch.addEventListener('click', () => {
-        selectedTags = selectedTags.filter(t => t !== ch.dataset.tag);
+      availOuter.style.display = avail.length ? '' : 'none';
+      availWrap.innerHTML = avail
+        .map(t => `<span class="az-tag-chip add" data-tag="${this._escAttr(t)}"><ha-icon icon="mdi:plus"></ha-icon> ${this._escHtml(t)}</span>`).join('');
+      // Remove a selected tag (click the × only).
+      selWrap.querySelectorAll('.az-tag-x').forEach(x => x.addEventListener('click', () => {
+        selectedTags = selectedTags.filter(t => t !== x.dataset.tag);
         renderTagEditor();
       }));
+      // Add a suggested tag (click the whole chip).
       availWrap.querySelectorAll('.az-tag-chip').forEach(ch => ch.addEventListener('click', () => {
         selectedTags.push(ch.dataset.tag);
         renderTagEditor();
