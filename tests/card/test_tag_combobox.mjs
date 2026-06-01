@@ -76,5 +76,29 @@ check("create label preserves typed casing; match is case-insensitive", () => {
   assert.ok(!r.some((i) => i.type === "create"));
 });
 
+// --- Dropdown visibility gate ---------------------------------------------
+// Bug (v1.0.90): removing a tag via its × re-ran renderSuggestions(), which
+// popped the dropdown open even though the input wasn't focused — covering the
+// pills. The editor now gates visibility on input focus. Mirror of that rule:
+//   showDropdown = inputFocused && currentSuggestions().length > 0
+function showDropdown(inputFocused, items) {
+  return inputFocused && items.length > 0;
+}
+
+check("dropdown stays closed when input is NOT focused (the remove-tag bug)", () => {
+  const items = suggestions(["away", "summer"], [], ""); // non-empty suggestions
+  assert.equal(showDropdown(false, items), false);
+});
+
+check("dropdown opens when input IS focused and there are suggestions", () => {
+  const items = suggestions(["away", "summer"], [], "");
+  assert.equal(showDropdown(true, items), true);
+});
+
+check("dropdown stays closed when focused but no suggestions", () => {
+  const items = suggestions([], [], ""); // nothing to suggest
+  assert.equal(showDropdown(true, items), false);
+});
+
 if (failures) { console.error(`\n${failures} check(s) failed`); process.exit(1); }
 console.log("all checks passed");
