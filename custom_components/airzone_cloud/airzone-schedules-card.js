@@ -495,6 +495,10 @@ class AirzoneSchedulesCard extends HTMLElement {
   _renderList() {
     const list = this.querySelector('#az-tab-schedules');
     if (!list) return;
+    // Keep the tag-filter chips in sync with whatever schedules are loaded.
+    // _renderList runs after _loadSchedules populates this._schedules, so this
+    // is where newly-present tags (e.g. a migrated "away") first become known.
+    this._renderTagFilters();
     if (!this._schedules.length) {
       list.innerHTML = '<div class="az-empty"><div class="az-empty-icon"><ha-icon icon="mdi:calendar-blank-outline" style="--mdc-icon-size: 48px;"></ha-icon></div>No schedules configured<br/><small>Click "New" to create one</small></div>';
       return;
