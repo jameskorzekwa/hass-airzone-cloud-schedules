@@ -32,8 +32,9 @@ console.log("test_tag_editor_css:");
 const REQUIRED_RULES = [
   "az-tag-chip",
   "az-tags-selected",
-  "az-tags-available",
-  "az-tag-add-row",
+  "az-tag-input-wrap",
+  "az-tag-suggestions",
+  "az-tag-suggestion",
 ];
 
 for (const cls of REQUIRED_RULES) {
