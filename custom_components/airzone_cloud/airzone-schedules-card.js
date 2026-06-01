@@ -246,10 +246,12 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-tag-suggestion + .az-tag-suggestion { border-top:1px solid var(--az-border); }
         .az-tag-suggestion:hover, .az-tag-suggestion.active { background:var(--az-border); }
         .az-tag-suggestion .az-tag-new-hint { color:var(--az-text2); font-size:0.85em; margin-left:6px; }
-        /* Selected tags: solid primary pills shown below the input */
+        /* Selected tags: solid primary pills shown below the input. Pills size
+           to their content and never shrink/clip when the row wraps. */
         .az-tags-selected { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
-        .az-tag-chip { display:inline-flex; align-items:center; gap:6px; background:var(--az-primary); color:var(--text-primary-color, #fff); font-size:0.92em; font-weight:600; padding:6px 6px 6px 12px; border-radius:16px; border:1px solid var(--az-primary); cursor:default; line-height:1; }
-        .az-tag-chip .az-tag-x { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border-radius:50%; cursor:pointer; opacity:0.8; transition:background 0.15s, opacity 0.15s; }
+        .az-tag-chip { display:inline-flex; align-items:center; gap:6px; flex:0 0 auto; max-width:100%; background:var(--az-primary); color:var(--text-primary-color, #fff); font-size:0.92em; font-weight:600; padding:6px 6px 6px 12px; border-radius:16px; border:1px solid var(--az-primary); cursor:default; line-height:1; }
+        .az-tag-chip .az-tag-label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .az-tag-chip .az-tag-x { display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; width:20px; height:20px; border-radius:50%; cursor:pointer; opacity:0.8; transition:background 0.15s, opacity 0.15s; }
         .az-tag-chip .az-tag-x:hover { background:rgba(0,0,0,0.22); opacity:1; }
         .az-tag-chip .az-tag-x ha-icon { --mdc-icon-size:15px; }
 
@@ -1303,15 +1305,18 @@ class AirzoneSchedulesCard extends HTMLElement {
     const tagInput = overlay.querySelector('#ed-tag-new');
     const sugBox = overlay.querySelector('#ed-tag-suggestions');
     let activeIdx = -1; // highlighted suggestion (keyboard nav)
+    let inputFocused = false; // only show the dropdown while the input has focus
 
     const renderSelectedTags = () => {
       const selWrap = overlay.querySelector('#ed-tags-selected');
       selWrap.innerHTML = selectedTags
-        .map(t => `<span class="az-tag-chip" data-tag="${this._escAttr(t)}">${this._escHtml(t)}<span class="az-tag-x" data-tag="${this._escAttr(t)}" title="Remove tag"><ha-icon icon="mdi:close"></ha-icon></span></span>`)
+        .map(t => `<span class="az-tag-chip" data-tag="${this._escAttr(t)}"><span class="az-tag-label">${this._escHtml(t)}</span><span class="az-tag-x" data-tag="${this._escAttr(t)}" title="Remove tag"><ha-icon icon="mdi:close"></ha-icon></span></span>`)
         .join('');
       selWrap.querySelectorAll('.az-tag-x').forEach(x => x.addEventListener('click', () => {
         selectedTags = selectedTags.filter(t => t !== x.dataset.tag);
         renderSelectedTags();
+        // Refresh the dropdown contents, but don't pop it open: removing a tag
+        // via its × shouldn't surface suggestions unless the input is focused.
         renderSuggestions();
       }));
     };
@@ -1341,6 +1346,9 @@ class AirzoneSchedulesCard extends HTMLElement {
     };
 
     const renderSuggestions = () => {
+      // Never surface the dropdown unless the input is focused — otherwise
+      // actions like removing a tag (which re-render) would pop it open.
+      if (!inputFocused) { sugBox.style.display = 'none'; sugBox.innerHTML = ''; return; }
       const items = currentSuggestions();
       if (!items.length) { sugBox.style.display = 'none'; sugBox.innerHTML = ''; return; }
       if (activeIdx >= items.length) activeIdx = items.length - 1;
@@ -1355,8 +1363,8 @@ class AirzoneSchedulesCard extends HTMLElement {
     };
 
     tagInput.addEventListener('input', () => { activeIdx = -1; renderSuggestions(); });
-    tagInput.addEventListener('focus', renderSuggestions);
-    tagInput.addEventListener('blur', () => { setTimeout(() => { sugBox.style.display = 'none'; }, 120); });
+    tagInput.addEventListener('focus', () => { inputFocused = true; renderSuggestions(); });
+    tagInput.addEventListener('blur', () => { inputFocused = false; setTimeout(() => { sugBox.style.display = 'none'; }, 120); });
     tagInput.addEventListener('keydown', (e) => {
       const items = currentSuggestions();
       if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = Math.min(items.length - 1, activeIdx + 1); renderSuggestions(); }
