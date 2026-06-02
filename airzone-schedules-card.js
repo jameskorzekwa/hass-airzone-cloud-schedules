@@ -71,6 +71,18 @@ class AirzoneSchedulesCard extends HTMLElement {
     return v;
   }
 
+  // Is the heat/cool gap below the configured deadband? Compares in the user's
+  // DISPLAY unit (where the values were typed) with a small epsilon, so a gap
+  // that's exactly the deadband — e.g. heat 65°F / cool 67°F with a 2°F
+  // deadband — is not falsely rejected by float-conversion rounding. (Doing
+  // the comparison in Celsius made 2°F apart compute as 1.1111107 < 1.1111112.)
+  // heatDisp/coolDisp are in the current display unit.
+  _deadbandViolated(heatDisp, coolDisp) {
+    const minGap = this._getDifferential(this._useFah ? 'F' : 'C');
+    if (!(minGap > 0)) return false;
+    return (coolDisp - heatDisp) < minGap - 0.01;
+  }
+
   _displayTemp(celsius) {
     if (celsius == null) return '—';
     return this._useFah ? cToF(celsius) + '°F' : celsius + '°C';
@@ -186,6 +198,8 @@ class AirzoneSchedulesCard extends HTMLElement {
         .az-schedule-when-time ha-icon { --mdc-icon-size:16px; }
         .az-schedule-foot { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; }
         .az-schedule-foot-info { display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:0.85em; color:var(--az-text2); font-weight:500; min-width:0; }
+        /* Tags get their own section below the zones/actions row. */
+        .az-schedule-tags { display:flex; flex-wrap:wrap; gap:8px; }
         .az-schedule-toggle { position:relative; width:54px; height:30px; flex-shrink:0; cursor: pointer; }
         .az-schedule-toggle input { opacity:0; width:0; height:0; position: absolute; }
         .az-toggle-slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:var(--disabled-text-color, #777); border-radius:30px; transition:0.3s; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
@@ -600,7 +614,7 @@ class AirzoneSchedulesCard extends HTMLElement {
           <div class="az-days">${DAY_LABELS.map((d, i) => '<span class="az-day ' + (days.includes(i) ? 'az-day-on' : 'az-day-off') + '" data-sid="' + s.id + '" data-day="' + i + '" title="Toggle ' + d + '">' + d + '</span>').join('')}</div>
         </div>
         <div class="az-schedule-sec az-schedule-foot">
-          <div class="az-schedule-foot-info">${badgesHtml}${deviceHtml}</div>
+          <div class="az-schedule-foot-info">${deviceHtml}</div>
           <div class="az-schedule-actions">
             ${isActive ? '<button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-apply" data-id="' + s.id + '" title="Apply now"><ha-icon icon="mdi:play" style="--mdc-icon-size: 18px;"></ha-icon></button>' : ''}
             <button class="az-btn az-btn-outline az-btn-icon az-btn-sm az-edit" data-id="${s.id}" title="Edit"><ha-icon icon="mdi:pencil" style="--mdc-icon-size: 18px;"></ha-icon></button>
@@ -608,6 +622,7 @@ class AirzoneSchedulesCard extends HTMLElement {
             <button class="az-btn az-btn-danger az-btn-icon az-btn-sm az-del" data-id="${s.id}" title="Delete"><ha-icon icon="mdi:delete" style="--mdc-icon-size: 18px;"></ha-icon></button>
           </div>
         </div>
+        ${badgesHtml ? `<div class="az-schedule-sec az-schedule-tags">${badgesHtml}</div>` : ''}
       `;
 
       el.querySelector('.az-edit').addEventListener('click', () => this._openEditor(s));
@@ -1431,8 +1446,9 @@ class AirzoneSchedulesCard extends HTMLElement {
           this._toast('Heat setpoint must be below cool setpoint', true);
           return;
         }
-        const minGapC = this._getDifferential('C');
-        if (minGapC > 0 && (coolC - heatC) < minGapC) {
+        // Compare in display units (what the user typed) to avoid float
+        // rounding falsely rejecting an exactly-on-the-deadband gap.
+        if (this._deadbandViolated(this._toDisplay(heatC), this._toDisplay(coolC))) {
           const minGapDisp = this._getDifferential(this._useFah ? 'F' : 'C');
           this._toast(
             'Heat and cool must be at least ' + Math.round(minGapDisp) + this._unitLabel() +
