@@ -109,26 +109,33 @@ await check("after the grace timer the row re-sections to 'disabled' and re-rend
   assert.ok(renderCount() >= 1, "a re-render should fire when the pin expires");
 });
 
-await check("enabling a disabled schedule pins it in 'disabled' first", async () => {
-  const { card, flushTimers } = makeCard();
+await check("enabling a disabled schedule moves it to 'enabled' IMMEDIATELY (no grace)", async () => {
+  const { card } = makeCard();
   const sched = { id: "s2", name: "Y", enabled: false };
   card._schedules = [sched];
+  card._groupOpen = { enabled: false, disabled: true }; // Enabled collapsed
   await card._toggleSchedule(sched, true);
   assert.equal(sched.enabled, true);
-  assert.equal(card._displaySection(sched), "disabled", "should stay pinned in 'disabled' during grace");
-  flushTimers();
-  assert.equal(card._displaySection(sched), "enabled", "re-sections to 'enabled' after grace");
+  assert.equal(card._displaySection(sched), "enabled", "should move to 'enabled' immediately, not pin in 'disabled'");
 });
 
-await check("toggling twice within the grace period collapses to live state", async () => {
-  const { card, flushTimers } = makeCard();
+await check("enabling auto-expands the Enabled section", async () => {
+  const { card } = makeCard();
+  const sched = { id: "s2b", name: "Y2", enabled: false };
+  card._schedules = [sched];
+  card._groupOpen = { enabled: false, disabled: true };
+  await card._toggleSchedule(sched, true);
+  assert.equal(card._groupOpen.enabled, true, "Enabled group should be expanded after enabling");
+});
+
+await check("disabling then re-enabling within grace immediately shows enabled", async () => {
+  const { card } = makeCard();
   const sched = { id: "s3", name: "Z", enabled: true };
   card._schedules = [sched];
   await card._toggleSchedule(sched, false); // pinned in 'enabled', live=false
-  await card._toggleSchedule(sched, true);  // re-pins in current display ('enabled'), live=true
+  assert.equal(card._displaySection(sched), "enabled");
+  await card._toggleSchedule(sched, true);  // enabling clears the pin, moves now
   assert.equal(sched.enabled, true);
-  flushTimers();
-  // live is enabled again and pin cleared -> shows enabled
   assert.equal(card._displaySection(sched), "enabled");
 });
 
