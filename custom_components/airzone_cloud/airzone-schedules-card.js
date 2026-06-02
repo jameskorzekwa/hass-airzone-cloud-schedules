@@ -45,6 +45,12 @@ class AirzoneSchedulesCard extends HTMLElement {
     this._activeTab = localStorage.getItem('az-active-tab') || 'schedules';
     this._filterTags = []; // active tag filters (OR semantics); empty = show all
     this._lastScheduleLoad = 0;
+    // schedId -> { section, timer }: after toggling a schedule's switch we keep
+    // the row in whatever section it was showing in for a grace period, so it
+    // doesn't jump groups the instant you flip it. It re-sections when the
+    // timer fires. See _displaySection / _pinScheduleSection / _toggleSchedule.
+    this._sectionPins = new Map();
+    this._sectionPinMs = 10000; // grace period before a toggled row re-sections
     // Server-backed settings (the Airzone deadband / minimum dual setpoint
     // gap the card enforces). Populated by _loadSettings during init;
     // defaults match the store's first-install default (2°F).
@@ -537,8 +543,8 @@ class AirzoneSchedulesCard extends HTMLElement {
       return;
     }
 
-    const enabled = sorted.filter(s => s.enabled !== false);
-    const disabled = sorted.filter(s => s.enabled === false);
+    const enabled = sorted.filter(s => this._displaySection(s) === 'enabled');
+    const disabled = sorted.filter(s => this._displaySection(s) === 'disabled');
 
     const buildCard = (s) => {
       const modeInfo = MODES[s.mode] || DEFAULT_MODE;
@@ -1503,12 +1509,49 @@ class AirzoneSchedulesCard extends HTMLElement {
     }
   }
 
+  // Which section a schedule should render in *right now*. Normally this is
+  // just its enabled state, but a freshly-toggled schedule is "pinned" to the
+  // section it was already in for a grace period (_sectionPinMs) so the row
+  // doesn't jump groups the instant you flip its switch.
+  _displaySection(s) {
+    const pin = s && s.id ? this._sectionPins.get(s.id) : null;
+    if (pin) return pin.section;
+    return (s && s.enabled !== false) ? 'enabled' : 'disabled';
+  }
+
+  // Hold a schedule in `section` for the grace period, then drop the pin and
+  // re-section the list. Re-pinning the same schedule resets its timer; if the
+  // pinned section already matches the live state (e.g. you toggled back), the
+  // pin is just cleared.
+  _pinScheduleSection(schedId, section) {
+    if (!schedId) return;
+    const existing = this._sectionPins.get(schedId);
+    if (existing && existing.timer) clearTimeout(existing.timer);
+    const timer = setTimeout(() => {
+      this._sectionPins.delete(schedId);
+      // Only the schedules tab shows these groups; rebuild it if visible.
+      if (this._activeTab === 'schedules') this._renderList();
+    }, this._sectionPinMs);
+    this._sectionPins.set(schedId, { section, timer });
+  }
+
+  _clearSectionPin(schedId) {
+    const pin = this._sectionPins.get(schedId);
+    if (pin && pin.timer) clearTimeout(pin.timer);
+    this._sectionPins.delete(schedId);
+  }
+
   async _toggleSchedule(schedule, active) {
     const schedId = schedule.id;
     if (!schedId) {
       this._toast('Error: Schedule ID missing', true);
       return;
     }
+    // Pin the row to the section it's currently shown in, so flipping the
+    // switch leaves it in place for the grace period before it re-sections.
+    // (Its on-screen section reflects the OLD enabled state at click time.)
+    const sc0 = (this._schedules || []).find(x => x.id === schedId);
+    this._pinScheduleSection(schedId, this._displaySection(sc0 || schedule));
     try {
       await this._hass.callWS({
         type: 'call_service', domain: 'airzone_cloud', service: 'ha_schedule_update',
@@ -1516,8 +1559,10 @@ class AirzoneSchedulesCard extends HTMLElement {
       });
       const sc = (this._schedules || []).find(x => x.id === schedId);
       if (sc) sc.enabled = !!active;
-      // The toggle already reflects the new state — no rebuild needed.
+      // The toggle already reflects the new state — no rebuild needed; the
+      // pin keeps the row in its current section until the timer re-sections.
     } catch (err) {
+      this._clearSectionPin(schedId);
       this._toast('Error: ' + (err.message || 'Check console'), true);
       this._loadSchedules();
     }
@@ -1716,6 +1761,17 @@ class AirzoneSchedulesCard extends HTMLElement {
 
   static getStubConfig() {
     return { type: "custom:airzone-schedules-card" };
+  }
+
+  disconnectedCallback() {
+    // Cancel any pending section-pin timers so a re-render can't fire on a
+    // detached card (e.g. after navigating away during the grace period).
+    if (this._sectionPins) {
+      for (const pin of this._sectionPins.values()) {
+        if (pin && pin.timer) clearTimeout(pin.timer);
+      }
+      this._sectionPins.clear();
+    }
   }
 
   getCardSize() { return 4; }
