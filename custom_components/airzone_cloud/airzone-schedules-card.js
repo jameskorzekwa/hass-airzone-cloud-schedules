@@ -50,7 +50,13 @@ class AirzoneSchedulesCard extends HTMLElement {
     // doesn't jump groups the instant you flip it. It re-sections when the
     // timer fires. See _displaySection / _pinScheduleSection / _toggleSchedule.
     this._sectionPins = new Map();
-    this._sectionPinMs = 10000; // grace period before a toggled row re-sections
+    this._sectionPinMs = 3000; // grace period before a toggled-OFF row re-sections
+    // entity_id -> { section: 'on'|'off', optimistic: bool, timer }. Zones read
+    // their on/off membership from live HA state (which we can't mutate), so we
+    // pin the displayed section: turning a zone OFF keeps it in On for the grace
+    // period; turning ON shows it in On immediately (optimistic) until the live
+    // state confirms. See _renderZones / _pinZoneSection / _toggleZonePower.
+    this._zonePins = new Map();
     // Server-backed settings (the Airzone deadband / minimum dual setpoint
     // gap the card enforces). Populated by _loadSettings during init;
     // defaults match the store's first-install default (2°F).
@@ -515,11 +521,16 @@ class AirzoneSchedulesCard extends HTMLElement {
     }
   }
 
-  async _loadSchedules() {
+  async _loadSchedules(silent = false) {
     const list = this.querySelector('#az-tab-schedules');
     if (!list) return;
     this._lastScheduleLoad = Date.now();
-    list.innerHTML = '<div class="az-loading"><div class="az-spinner"></div><br/>Loading schedules…</div>';
+    // `silent` refetches without wiping the list to a spinner first — used after
+    // a save so the existing cards don't flash away and reappear. The spinner is
+    // only for the genuine first/empty load.
+    if (!silent || !list.querySelector('.az-schedule')) {
+      list.innerHTML = '<div class="az-loading"><div class="az-spinner"></div><br/>Loading schedules…</div>';
+    }
     try {
       const resp = await this._hass.callWS({
         type: 'call_service', domain: 'airzone_cloud', service: 'ha_schedule_list',
@@ -769,8 +780,10 @@ class AirzoneSchedulesCard extends HTMLElement {
     }
 
     // Group zones into collapsible On / Off sections (Off collapsed by
-    // default), mirroring the Schedules page.
-    const offSet = new Set(climateEntities.filter(z => (z.state || 'off') === 'off').map(z => z.entity_id));
+    // default), mirroring the Schedules page. A pinned zone (just toggled)
+    // overrides its live membership for the grace period — see _zoneSection.
+    this._reconcileZonePins(climateEntities);
+    const offSet = new Set(climateEntities.filter(z => this._zoneSection(z) === 'off').map(z => z.entity_id));
     const onZones = climateEntities.filter(z => !offSet.has(z.entity_id));
     const offZones = climateEntities.filter(z => offSet.has(z.entity_id));
     const ordered = [...onZones, ...offZones];
@@ -824,7 +837,10 @@ class AirzoneSchedulesCard extends HTMLElement {
       const fanMode = a.fan_mode;
       const minTemp = a.min_temp || 15;
       const maxTemp = a.max_temp || 30;
-      const isOff = hvacMode === 'off';
+      // Pin-aware power: an optimistic toggle overrides live state so the body
+      // and toggle match the section the zone is pinned into during the grace
+      // period / cloud round-trip.
+      const isOff = this._zoneDisplayOff(zone.entity_id, hvacMode === 'off');
       // Dual-setpoint (auto / double_sp) zones expose target_temp_low/high
       // instead of a single temperature.
       let tLow = a.target_temp_low;
@@ -922,11 +938,7 @@ class AirzoneSchedulesCard extends HTMLElement {
       // Power toggle
       el.querySelector('.az-zone-power').addEventListener('change', (e) => {
         const eid = e.target.dataset.entity;
-        if (e.target.checked) {
-          this._hass.callService('climate', 'turn_on', { entity_id: eid });
-        } else {
-          this._hass.callService('climate', 'turn_off', { entity_id: eid });
-        }
+        this._toggleZonePower(eid, e.target.checked);
       });
 
       // Temp buttons
@@ -1480,7 +1492,10 @@ class AirzoneSchedulesCard extends HTMLElement {
         }
 
         closeOverlay();
-        this._loadData();
+        // Silent refetch: update the schedule list in place (no spinner wipe),
+        // so saving doesn't make every card flash away and reappear. Devices
+        // and settings don't change on a schedule save, so skip reloading them.
+        this._loadSchedules(true);
       } catch (err) {
         this._toast('Error: ' + (err.message || 'Unknown'), true);
       }
@@ -1557,28 +1572,107 @@ class AirzoneSchedulesCard extends HTMLElement {
     this._sectionPins.delete(schedId);
   }
 
+  // --- Zone on/off section pinning (mirrors the schedule logic) ---
+
+  // Section a zone should render in. A pin overrides the live state: a
+  // turned-OFF zone stays 'on' for the grace period; a turned-ON zone shows
+  // 'on' immediately (optimistic) until live state confirms.
+  _zoneSection(z) {
+    const pin = this._zonePins.get(z.entity_id);
+    if (pin) return pin.section;
+    return (z.state || 'off') === 'off' ? 'off' : 'on';
+  }
+
+  // Effective power for rendering a zone's body/toggle: a pin's optimistic
+  // displayOn overrides live state so the toggle + body don't fight the
+  // section the zone is pinned into. Returns true when the zone should render
+  // as OFF. `liveOff` is the live-state-derived off flag.
+  _zoneDisplayOff(eid, liveOff) {
+    const pin = this._zonePins.get(eid);
+    if (pin) return !pin.displayOn;
+    return liveOff;
+  }
+
+  // Drop a pin once the live state has caught up to it, so a zone doesn't stay
+  // pinned past the cloud round-trip. Turn-ON pins (optimistic) drop as soon as
+  // live turns on; turn-OFF pins are held by their fixed grace timer instead.
+  _reconcileZonePins(entities) {
+    if (!this._zonePins.size) return;
+    for (const z of entities) {
+      const pin = this._zonePins.get(z.entity_id);
+      if (!pin) continue;
+      const live = (z.state || 'off') === 'off' ? 'off' : 'on';
+      if (pin.optimistic && live === pin.section) {
+        if (pin.timer) clearTimeout(pin.timer);
+        this._zonePins.delete(z.entity_id);
+      }
+    }
+  }
+
+  _pinZoneSection(eid, section, displayOn, optimistic) {
+    const existing = this._zonePins.get(eid);
+    if (existing && existing.timer) clearTimeout(existing.timer);
+    // Optimistic (turn-ON) pins get a generous safety timeout in case the live
+    // state never arrives; turn-OFF pins use the short grace period.
+    const ms = optimistic ? 15000 : this._sectionPinMs;
+    const timer = setTimeout(() => {
+      this._zonePins.delete(eid);
+      if (this._activeTab === 'zones') this._renderZones();
+    }, ms);
+    this._zonePins.set(eid, { section, displayOn: !!displayOn, optimistic: !!optimistic, timer });
+  }
+
+  _clearZonePin(eid) {
+    const pin = this._zonePins.get(eid);
+    if (pin && pin.timer) clearTimeout(pin.timer);
+    this._zonePins.delete(eid);
+  }
+
+  _toggleZonePower(eid, on) {
+    if (on) {
+      // Turn on: show in On immediately (toggle + body) + expand the On group.
+      // Optimistic pin holds it there until the slow cloud round-trip confirms.
+      if (this._groupOpen) this._groupOpen.zonesOn = true;
+      this._pinZoneSection(eid, 'on', true, true);
+      this._hass.callService('climate', 'turn_on', { entity_id: eid });
+      this._renderZones();
+    } else {
+      // Turn off: show the toggle/body as off immediately, but keep the card in
+      // the On section for the grace period before it drops to Off.
+      this._pinZoneSection(eid, 'on', false, false);
+      this._hass.callService('climate', 'turn_off', { entity_id: eid });
+      this._renderZones();
+    }
+  }
+
   async _toggleSchedule(schedule, active) {
     const schedId = schedule.id;
     if (!schedId) {
       this._toast('Error: Schedule ID missing', true);
       return;
     }
-    // Pin the row to the section it's currently shown in, so flipping the
-    // switch leaves it in place for the grace period before it re-sections.
-    // (Its on-screen section reflects the OLD enabled state at click time.)
-    const sc0 = (this._schedules || []).find(x => x.id === schedId);
-    this._pinScheduleSection(schedId, this._displaySection(sc0 || schedule));
+    const sc = (this._schedules || []).find(x => x.id === schedId);
+    if (active) {
+      // Enabling: move to the Enabled section immediately and make sure it's
+      // expanded so the row is visible. No grace period on enable.
+      this._clearSectionPin(schedId);
+      if (sc) sc.enabled = true;
+      if (this._groupOpen) this._groupOpen.enabled = true;
+      this._renderList();
+    } else {
+      // Disabling: keep the row in its current (Enabled) section for the grace
+      // period before it re-sections to Disabled.
+      this._pinScheduleSection(schedId, this._displaySection(sc || schedule));
+      if (sc) sc.enabled = false;
+    }
     try {
       await this._hass.callWS({
         type: 'call_service', domain: 'airzone_cloud', service: 'ha_schedule_update',
         service_data: { id: schedId, changes: { enabled: !!active } }, return_response: true
       });
-      const sc = (this._schedules || []).find(x => x.id === schedId);
-      if (sc) sc.enabled = !!active;
-      // The toggle already reflects the new state — no rebuild needed; the
-      // pin keeps the row in its current section until the timer re-sections.
     } catch (err) {
       this._clearSectionPin(schedId);
+      if (sc) sc.enabled = !active; // revert optimistic change
       this._toast('Error: ' + (err.message || 'Check console'), true);
       this._loadSchedules();
     }
@@ -1782,11 +1876,12 @@ class AirzoneSchedulesCard extends HTMLElement {
   disconnectedCallback() {
     // Cancel any pending section-pin timers so a re-render can't fire on a
     // detached card (e.g. after navigating away during the grace period).
-    if (this._sectionPins) {
-      for (const pin of this._sectionPins.values()) {
+    for (const map of [this._sectionPins, this._zonePins]) {
+      if (!map) continue;
+      for (const pin of map.values()) {
         if (pin && pin.timer) clearTimeout(pin.timer);
       }
-      this._sectionPins.clear();
+      map.clear();
     }
   }
 
