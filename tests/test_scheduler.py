@@ -768,3 +768,105 @@ class TestSettingsServices:
         # Use same handlers map.
         re_get = await handlers["ha_settings_get"](get_call)
         assert re_get["settings"]["setpoint_differential"] == 3
+
+
+def _dual_sched(sid="s1", **over):
+    s = {
+        "id": sid,
+        "name": "Night",
+        "enabled": True,
+        "mode": 1,
+        "days": [0, 1, 2, 3, 4, 5, 6],
+        "hour": 9,
+        "minutes": 0,
+        "device_ids": ["dev-up"],
+        "setpoint_heat": 18.5,  # 65°F
+        "setpoint_cool": 19.5,  # 67°F
+    }
+    s.update(over)
+    return s
+
+
+def _range_state(low, high, state="heat_cool"):
+    st = MagicMock()
+    st.state = state
+    st.attributes = {"supported_features": 2, "target_temp_low": low, "target_temp_high": high}
+    return st
+
+
+class TestDifferentialWatchdog:
+    """The device (Aidoo, differential=0) drags heat up to cool ~24 min after a
+    band is written, leaving a zero-gap band. The watchdog must re-assert it."""
+
+    async def test_reasserts_collapsed_band(self):
+        # Live band collapsed to 67/67 *mid-period* — last_applied matches the
+        # active schedule, so the normal apply path is skipped (would do nothing
+        # before this fix). The watchdog must still re-assert 65/67, mode-free.
+        sched, hass, store, reg = _make_scheduler(
+            schedules=[_dual_sched()],
+            last_applied={"dev-up": "s1@2026-05-16T09:00"},
+            unit="°F",
+            entity_state=_range_state(67, 67),
+        )
+        with (
+            patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg),
+            patch("custom_components.airzone_cloud.scheduler.datetime") as dt,
+        ):
+            dt.now.return_value = SAT
+            await sched.async_reconcile("test")
+        calls = hass.services.async_call.await_args_list
+        sp = [c for c in calls if c.args[:2] == ("climate", "set_temperature")]
+        assert len(sp) == 1
+        assert sp[0].args[2]["target_temp_low"] == 65
+        assert sp[0].args[2]["target_temp_high"] == 67
+        # The watchdog re-asserts setpoints only — never the mode (a mode
+        # re-assert is one of the writes that can re-arm the collapse).
+        assert not any(c.args[:2] == ("climate", "set_hvac_mode") for c in calls)
+
+    async def test_healthy_band_left_untouched(self):
+        # Gap == differential (65/67 with a 2°F diff): nothing to heal.
+        sched, hass, store, reg = _make_scheduler(
+            schedules=[_dual_sched()],
+            last_applied={"dev-up": "s1@2026-05-16T09:00"},
+            unit="°F",
+            entity_state=_range_state(65, 67),
+        )
+        with (
+            patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg),
+            patch("custom_components.airzone_cloud.scheduler.datetime") as dt,
+        ):
+            dt.now.return_value = SAT
+            await sched.async_reconcile("test")
+        hass.services.async_call.assert_not_called()
+
+    async def test_no_reassert_when_differential_zero(self):
+        sched, hass, store, reg = _make_scheduler(
+            schedules=[_dual_sched()],
+            last_applied={"dev-up": "s1@2026-05-16T09:00"},
+            unit="°F",
+            entity_state=_range_state(67, 67),
+        )
+        store._data["settings"] = {"setpoint_differential": 0, "setpoint_differential_unit": "F"}
+        with (
+            patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg),
+            patch("custom_components.airzone_cloud.scheduler.datetime") as dt,
+        ):
+            dt.now.return_value = SAT
+            await sched.async_reconcile("test")
+        hass.services.async_call.assert_not_called()
+
+    async def test_single_setpoint_schedule_not_watched(self):
+        # A cool-only (single-setpoint) schedule has no heat/cool band to guard.
+        sched, hass, store, reg = _make_scheduler(
+            schedules=[_dual_sched(mode=2, setpoint=19.5, setpoint_heat=None, setpoint_cool=None)],
+            last_applied={"dev-up": "s1@2026-05-16T09:00"},
+            unit="°F",
+            entity_state=_range_state(67, 67),
+        )
+        with (
+            patch("custom_components.airzone_cloud.scheduler.er.async_get", return_value=reg),
+            patch("custom_components.airzone_cloud.scheduler.datetime") as dt,
+        ):
+            dt.now.return_value = SAT
+            await sched.async_reconcile("test")
+        hass.services.async_call.assert_not_called()

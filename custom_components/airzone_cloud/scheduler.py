@@ -45,6 +45,12 @@ POST_APPLY_VERIFY_DELAY_S = 90
 # by a reconcile at 22:01:30 is still "fresh").
 RECENT_FIRE_WINDOW = timedelta(seconds=180)
 
+# A live heat/cool band whose gap has fallen this far below the configured
+# differential (in the HA display unit) is treated as a device-side collapse
+# and re-asserted by the differential watchdog. Small enough to ignore float /
+# °F↔°C rounding, large enough to catch a real collapse (gap -> 0).
+DIFFERENTIAL_EPSILON = 0.01
+
 # Airzone schedule mode number -> HA HVAC mode string
 SCHEDULE_MODE_TO_HVAC: dict[int, str] = {
     1: "heat_cool",
@@ -160,6 +166,14 @@ class AirzoneScheduler:
                     if not best:
                         continue
 
+                    # Differential watchdog: heal a device-side band collapse
+                    # (the Aidoo firmware dragging heat up to cool ~24 min after
+                    # a period is written) by re-asserting the active schedule's
+                    # band. Runs every reconcile, independent of the transition
+                    # gating below, because the collapse happens minutes *after*
+                    # the period was applied (so last_applied already matches).
+                    await self._enforce_differential(entity_id, best)
+
                     key = f"{best['id']}@{best_time.isoformat(timespec='minutes')}"
                     if self.store.get_last_applied(device_id) == key:
                         continue  # same period already applied — respect manual changes
@@ -208,6 +222,91 @@ class AirzoneScheduler:
         if unit == "°F":
             return round(celsius * 9 / 5 + 32)
         return celsius
+
+    def _configured_differential(self) -> float:
+        """Configured minimum heat/cool gap, in the HA display unit.
+
+        Mirrors the card's ``_getDifferential`` — the store keeps the value in
+        the unit it was entered in. Returns 0 when unset or non-positive.
+        """
+        settings = self.store.get_settings()
+        try:
+            value = float(settings.get("setpoint_differential") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+        if value <= 0:
+            return 0.0
+        unit = settings.get("setpoint_differential_unit") or "F"
+        want = "F" if self.hass.config.units.temperature_unit == "°F" else "C"
+        if unit == want:
+            return value
+        if unit == "F" and want == "C":
+            return value / 1.8
+        if unit == "C" and want == "F":
+            return value * 1.8
+        return value
+
+    async def _enforce_differential(self, entity_id: str, sched: dict) -> None:
+        """Re-assert a dual schedule's band when the live gap has collapsed.
+
+        The Aidoo/Mitsubishi firmware (with its own differential at 0) drags the
+        heat setpoint up to cool ~24 min after a band is written, leaving a
+        zero-gap band. Re-applying the schedule's setpoints heals it: because
+        ``climate.set_temperature`` is now edge-minimal, when only heat collapsed
+        this re-writes heat alone (cool stays pinned at its floor) — a single-edge
+        write the firmware does not reconcile away, exactly like a manual app fix.
+
+        Only fires when the live gap is *below* the configured differential, so a
+        valid manual mid-period band (gap >= differential) is left untouched.
+        """
+        if SCHEDULE_MODE_TO_HVAC.get(sched.get("mode")) != "heat_cool":
+            return
+        sp_heat = sched.get("setpoint_heat")
+        sp_cool = sched.get("setpoint_cool")
+        if sp_heat is None or sp_cool is None:
+            return
+        diff = self._configured_differential()
+        if diff <= 0:
+            return
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state != "heat_cool":
+            return
+        attrs = state.attributes
+        if not (attrs.get("supported_features", 0) & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE):
+            return
+        low = attrs.get("target_temp_low")
+        high = attrs.get("target_temp_high")
+        if low is None or high is None:
+            return
+        if (high - low) >= diff - DIFFERENTIAL_EPSILON:
+            return  # band still satisfies the differential — nothing to heal
+        target_low = self._to_ha_temp(sp_heat)
+        target_high = self._to_ha_temp(sp_cool)
+        if (target_high - target_low) < diff - DIFFERENTIAL_EPSILON:
+            return  # the schedule's own band is sub-differential — don't fight it
+        _LOGGER.info(
+            "Airzone scheduler: %s band collapsed to %s/%s (gap < %s%s) — re-asserting %s/%s",
+            entity_id,
+            low,
+            high,
+            round(diff),
+            self.hass.config.units.temperature_unit,
+            target_low,
+            target_high,
+        )
+        try:
+            await self.hass.services.async_call(
+                "climate",
+                "set_temperature",
+                {
+                    "entity_id": entity_id,
+                    "target_temp_low": target_low,
+                    "target_temp_high": target_high,
+                },
+                blocking=True,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Airzone scheduler: differential re-assert failed for %s", entity_id)
 
     async def _apply(self, entity_id: str, sched: dict) -> bool:
         hvac = SCHEDULE_MODE_TO_HVAC.get(sched.get("mode"))
