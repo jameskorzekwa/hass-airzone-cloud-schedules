@@ -65,6 +65,7 @@ from .entity import (
     AirzoneInstallationEntity,
     AirzoneZoneEntity,
 )
+from .setpoint_util import setpoint_changed
 
 FAN_SPEED_AUTO: dict[int, str] = {
     0: FAN_AUTO,
@@ -311,19 +312,30 @@ class AirzoneDeviceClimate(AirzoneClimate):
                 },
             }
         if ATTR_TARGET_TEMP_LOW in kwargs and ATTR_TARGET_TEMP_HIGH in kwargs:
-            params[API_SP_AIR_COOL] = {
-                API_VALUE: kwargs[ATTR_TARGET_TEMP_HIGH],
-                API_OPTS: {
-                    API_UNITS: TemperatureUnit.CELSIUS.value,
-                },
-            }
-            params[API_SP_AIR_HEAT] = {
-                API_VALUE: kwargs[ATTR_TARGET_TEMP_LOW],
-                API_OPTS: {
-                    API_UNITS: TemperatureUnit.CELSIUS.value,
-                },
-            }
-        await self._async_update_params(params)
+            # Edge-minimal: only send the setpoint edge(s) that actually
+            # changed. Re-writing an unchanged edge — in particular re-pinning
+            # cool to the unit's cooling floor — re-arms an Aidoo/Mitsubishi
+            # firmware reconcile (device differential = 0) that ~24 min later
+            # drags heat up to cool, collapsing the band. A manual single-edge
+            # change in the app never re-pins the other edge, which is exactly
+            # why it sticks; mirror that so our writes don't self-destruct.
+            step = self._attr_target_temperature_step
+            if setpoint_changed(kwargs[ATTR_TARGET_TEMP_HIGH], self._attr_target_temperature_high, step):
+                params[API_SP_AIR_COOL] = {
+                    API_VALUE: kwargs[ATTR_TARGET_TEMP_HIGH],
+                    API_OPTS: {
+                        API_UNITS: TemperatureUnit.CELSIUS.value,
+                    },
+                }
+            if setpoint_changed(kwargs[ATTR_TARGET_TEMP_LOW], self._attr_target_temperature_low, step):
+                params[API_SP_AIR_HEAT] = {
+                    API_VALUE: kwargs[ATTR_TARGET_TEMP_LOW],
+                    API_OPTS: {
+                        API_UNITS: TemperatureUnit.CELSIUS.value,
+                    },
+                }
+        if params:
+            await self._async_update_params(params)
 
 
 class AirzoneDeviceGroupClimate(AirzoneClimate):
