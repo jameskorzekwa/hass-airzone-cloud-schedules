@@ -5,14 +5,18 @@
     "@Noltari"
   ],
   "config_flow": true,
-  "documentation": "https://www.home-assistant.io/integrations/airzone_cloud",
+  "dependencies": [
+    "http"
+  ],
+  "documentation": "https://github.com/jameskorzekwa/hass-airzone-cloud-schedules",
   "integration_type": "hub",
-  "version": "1.0.96",
   "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/jameskorzekwa/hass-airzone-cloud-schedules/issues",
   "loggers": [
     "aioairzone_cloud"
   ],
   "requirements": [
-    "aioairzone-cloud @ git+https://github.com/jameskorzekwa/aioairzone-cloud.git"
-  ]
+    "aioairzone-cloud@git+https://github.com/jameskorzekwa/aioairzone-cloud.git"
+  ],
+  "version": "1.0.96"
 }
