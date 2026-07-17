@@ -129,6 +129,8 @@ jobs:
         uses: hacs/action@main
         with:
           category: integration
+          # These publishing checks require repository-level metadata or brand assets.
+          ignore: brands license topics
 
   release:
     name: Release

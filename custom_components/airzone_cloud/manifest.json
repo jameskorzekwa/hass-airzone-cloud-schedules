@@ -11,6 +11,7 @@
   "documentation": "https://github.com/jameskorzekwa/hass-airzone-cloud-schedules",
   "integration_type": "hub",
   "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/jameskorzekwa/hass-airzone-cloud-schedules/issues",
   "loggers": [
     "aioairzone_cloud"
   ],
