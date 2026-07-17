@@ -18,5 +18,5 @@
   "requirements": [
     "aioairzone-cloud@git+https://github.com/jameskorzekwa/aioairzone-cloud.git"
   ],
-  "version": "1.0.96"
+  "version": "1.0.97"
 }
