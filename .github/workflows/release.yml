@@ -3,7 +3,7 @@ name: CI & Release
 on:
   push:
     branches:
-      - main
+      - '**'
     paths-ignore:
       - 'AGENTS.md'
       - '**/AGENTS.md'
@@ -18,7 +18,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   lint:
@@ -37,20 +37,10 @@ jobs:
         run: pip install ruff
 
       - name: Ruff check
-        run: |
-          ruff check \
-            custom_components/airzone_cloud/__init__.py \
-            custom_components/airzone_cloud/services.py \
-            custom_components/airzone_cloud/scheduler.py \
-            custom_components/airzone_cloud/schedule_store.py \
-            tests/
+        run: ruff check custom_components tests
 
       - name: Ruff format check
-        run: |
-          ruff format --check \
-            custom_components/airzone_cloud/__init__.py \
-            custom_components/airzone_cloud/services.py \
-            tests/
+        run: ruff format --check custom_components tests
 
   test:
     name: Test
@@ -118,32 +108,56 @@ jobs:
             custom_components/airzone_cloud/airzone-schedules-card.js \
             || { echo "::error::card copies differ — keep both byte-identical"; exit 1; }
 
+  hassfest:
+    name: Hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Run Hassfest
+        uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: HACS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Run HACS validation
+        uses: hacs/action@main
+        with:
+          category: integration
+
   release:
     name: Release
-    needs: [lint, test, validate]
+    needs: [lint, test, validate, hassfest, hacs]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ github.repository }}
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Get current version from manifest
+      - name: Determine release version
         id: version
         run: |
-          VERSION=$(jq -r '.version' custom_components/airzone_cloud/manifest.json)
-          echo "current=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Bump patch version
-        id: bump
-        run: |
-          CURRENT="${{ steps.version.outputs.current }}"
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-          PATCH=$((PATCH + 1))
-          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-          echo "new=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-          jq --arg v "$NEW_VERSION" '.version = $v' custom_components/airzone_cloud/manifest.json > tmp.json
+          CURRENT=$(jq -r '.version' custom_components/airzone_cloud/manifest.json)
+          if git rev-parse --verify --quiet "refs/tags/v${CURRENT}" >/dev/null; then
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          else
+            VERSION="$CURRENT"
+          fi
+          echo "new=$VERSION" >> "$GITHUB_OUTPUT"
+          jq --arg v "$VERSION" '.version = $v' custom_components/airzone_cloud/manifest.json > tmp.json
           mv tmp.json custom_components/airzone_cloud/manifest.json
 
       - name: Commit version bump
@@ -151,7 +165,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add custom_components/airzone_cloud/manifest.json
-          git diff --cached --quiet && echo "No changes" || git commit -m "Bump version to ${{ steps.bump.outputs.new }}"
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "Bump version to ${{ steps.version.outputs.new }}"
+          fi
           git push
 
       - name: Create zip for HACS
@@ -162,10 +180,10 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.bump.outputs.new }}
-          name: v${{ steps.bump.outputs.new }}
+          tag_name: v${{ steps.version.outputs.new }}
+          name: v${{ steps.version.outputs.new }}
           body: |
-            Automated release v${{ steps.bump.outputs.new }}
+            Automated release v${{ steps.version.outputs.new }}
 
             Commit: ${{ github.sha }}
           files: airzone_cloud.zip
