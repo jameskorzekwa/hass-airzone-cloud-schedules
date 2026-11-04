@@ -102,6 +102,12 @@ jobs:
       - name: Validate JS syntax
         run: node -c custom_components/airzone_cloud/airzone-schedules-card.js
 
+      - name: Card regression tests
+        run: |
+          for test in tests/card/test_*.mjs; do
+            node --unhandled-rejections=strict "$test" || exit 1
+          done
+
       - name: Card copies in sync
         run: |
           diff -q airzone-schedules-card.js \
