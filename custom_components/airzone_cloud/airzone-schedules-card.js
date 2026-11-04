@@ -713,36 +713,66 @@ class AirzoneSchedulesCard extends HTMLElement {
     if (disabled.length) list.appendChild(buildGroup(disabled, 'Disabled', this._groupOpen.disabled, 'disabled'));
   }
 
-  // Optimistically set a zone setpoint: show the new value immediately
-  // (via the _zoneOpt override consulted in _renderZones), call the
-  // service, and on failure clear the override and revert the UI.
-  _zoneSetTemp(eid, serviceData, optData, revert) {
+  // Debounce each zone's clicks, then serialize bursts: an older cloud PATCH
+  // must finish before the latest intent is sent, even when it is very slow.
+  _zoneSetTemp(eid, serviceData, optData) {
     this._zoneOpt = this._zoneOpt || {};
-    // Pin ONLY the setpoint(s) the user actually changed. For a dual zone
-    // the opposite setpoint can be auto-adjusted server-side (the deadband
-    // is configurable on the Airzone backend and is not exposed to HA), so
-    // leave it following live state instead of a stale guess — it then
-    // reflects the backend's real value as soon as the entity refreshes.
-    this._zoneOpt[eid] = Object.assign({}, optData, { until: Date.now() + 15000 });
-    const refresh = () =>
-      this._hass.callService('homeassistant', 'update_entity', { entity_id: eid });
-    const p = this._hass.callService('climate', 'set_temperature',
-      Object.assign({ entity_id: eid }, serviceData));
-    if (p && typeof p.then === 'function') {
-      p.then(
-        () => {
-          // Re-poll the integration so any backend-adjusted opposite
-          // setpoint shows quickly instead of waiting for the cloud
-          // integration's normal poll interval.
-          setTimeout(refresh, 1500);
-          setTimeout(refresh, 5000);
-        },
-        (err) => {
-          if (this._zoneOpt) delete this._zoneOpt[eid];
-          if (typeof revert === 'function') revert();
-          this._toast('Error: ' + ((err && err.message) || 'could not set temperature'), true);
-        },
-      );
+    this._zoneWrites = this._zoneWrites || {};
+    const q = this._zoneWrites[eid] ||= { generation: 0, callbacks: [] };
+    q.generation++;
+    clearTimeout(q.timer);
+    q.callbacks.forEach(clearTimeout);
+    q.callbacks = [];
+    // Each stepper supplies the complete desired single value or dual band.
+    // Never discard a return to the starting value while an older write runs.
+    q.pending = { serviceData: { ...serviceData }, generation: q.generation };
+    this._zoneOpt[eid] = { ...optData, until: Infinity };
+    q.timer = setTimeout(() => {
+      q.timer = null;
+      this._flushZoneSetTemp(eid);
+    }, 600);
+  }
+
+  async _flushZoneSetTemp(eid) {
+    const q = this._zoneWrites?.[eid];
+    if (!q || q.inFlight || q.timer || !q.pending) return;
+    const { serviceData, generation } = q.pending;
+    q.pending = null;
+    q.inFlight = true;
+    const current = () => q.generation === generation;
+    const render = () => {
+      if (this.isConnected && this._activeTab === 'zones') this._renderZones();
+    };
+    try {
+      await this._hass.callService('climate', 'set_temperature', { entity_id: eid, ...serviceData });
+      if (current()) {
+        // The reconciliation window starts AFTER completion, never at click.
+        this._zoneOpt[eid].until = Date.now() + 15000;
+        const refresh = async () => {
+          if (!current() || !this.isConnected) return;
+          try {
+            await this._hass.callService('homeassistant', 'update_entity', { entity_id: eid });
+          } catch (err) {
+            if (current() && this.isConnected) this._toast('Error refreshing temperature: ' + (err?.message || 'refresh failed'), true);
+          }
+        };
+        q.callbacks = [setTimeout(refresh, 1500), setTimeout(refresh, 5000), setTimeout(() => {
+          if (!current()) return;
+          delete this._zoneOpt[eid];
+          render();
+        }, 15000)];
+      }
+    } catch (err) {
+      if (current()) {
+        delete this._zoneOpt[eid];
+        // Read current HA state, not a DOM node/value captured before the burst.
+        render();
+        this._toast('Error: ' + (err?.message || 'could not set temperature'), true);
+      }
+    } finally {
+      q.inFlight = false;
+      // A still-debouncing burst waits for its timer; a ready burst drains now.
+      this._flushZoneSetTemp(eid);
     }
   }
 
@@ -847,14 +877,16 @@ class AirzoneSchedulesCard extends HTMLElement {
       let tHigh = a.target_temp_high;
       const isDual = hvacMode === 'heat_cool' && tLow != null && tHigh != null;
       // Optimistic setpoint override: show the just-clicked value instantly
-      // and keep it until the live state catches up or the window expires
-      // (Airzone's cloud round-trip is slow). Cleared/ reverted on failure.
+      // while queued/in flight, then until live state matches or the post-write
+      // reconciliation window expires. Latest failures restore current HA state.
       const _zo = this._zoneOpt && this._zoneOpt[zone.entity_id];
       if (_zo) {
         const landed = (_zo.temperature == null || a.temperature === _zo.temperature)
           && (_zo.target_temp_low == null || a.target_temp_low === _zo.target_temp_low)
           && (_zo.target_temp_high == null || a.target_temp_high === _zo.target_temp_high);
-        if (Date.now() > _zo.until || landed) {
+        const write = this._zoneWrites?.[zone.entity_id];
+        const busy = write && (write.pending || write.inFlight);
+        if (!busy && (Date.now() >= _zo.until || landed)) {
           delete this._zoneOpt[zone.entity_id];
         } else {
           if (_zo.temperature != null) targetTemp = _zo.temperature;
@@ -956,10 +988,8 @@ class AirzoneSchedulesCard extends HTMLElement {
         const cur = _curSingle(eid);
         const newTemp = dir === 'up' ? Math.min(lim, cur + step) : Math.max(lim, cur - step);
         const numEl = anchorBtn.closest('.az-zone-target').querySelector('.az-zone-num');
-        const prev = numEl ? numEl.textContent : null;
         if (numEl) numEl.textContent = newTemp;
-        this._zoneSetTemp(eid, { temperature: newTemp }, { temperature: newTemp },
-          () => { if (numEl && prev != null) numEl.textContent = prev; });
+        this._zoneSetTemp(eid, { temperature: newTemp }, { temperature: newTemp });
       };
       if (downBtn) downBtn.addEventListener('click', () => _bumpSingle(downBtn, 'down'));
       if (upBtn) upBtn.addEventListener('click', () => _bumpSingle(upBtn, 'up'));
@@ -1013,18 +1043,12 @@ class AirzoneSchedulesCard extends HTMLElement {
           high = Math.min(Math.max(minT, high), maxT);
           const card = btn.closest('.az-zone');
           const nums = card ? card.querySelectorAll('.az-zone-hc .az-zone-num') : [];
-          const prevLow = nums[0] ? nums[0].textContent : null;
-          const prevHigh = nums[1] ? nums[1].textContent : null;
           if (nums[0]) nums[0].textContent = low;
           if (nums[1]) nums[1].textContent = high;
           // We computed a backend-valid band, so pin both setpoints.
           this._zoneSetTemp(eid,
             { target_temp_low: low, target_temp_high: high },
-            { target_temp_low: low, target_temp_high: high },
-            () => {
-              if (nums[0] && prevLow != null) nums[0].textContent = prevLow;
-              if (nums[1] && prevHigh != null) nums[1].textContent = prevHigh;
-            });
+            { target_temp_low: low, target_temp_high: high });
         });
       });
 
@@ -1873,7 +1897,24 @@ class AirzoneSchedulesCard extends HTMLElement {
     return { type: "custom:airzone-schedules-card" };
   }
 
+  connectedCallback() {
+    // Detached write failures/expiry can clear optimistic state without changing
+    // the HA hash. Reconcile the retained DOM before the next stepper click.
+    if (this._initialized && this._activeTab === 'zones') {
+      this._lastZoneHash = this._getZoneHash();
+      this._renderZones();
+    }
+  }
+
   disconnectedCallback() {
+    // Navigation must not drop the last click or bypass an in-flight write.
+    for (const [eid, q] of Object.entries(this._zoneWrites || {})) {
+      clearTimeout(q.timer);
+      q.timer = null;
+      // Keep bounded reconciliation timers across reconnects. Refresh/render
+      // callbacks check isConnected, so they do no UI work while detached.
+      this._flushZoneSetTemp(eid);
+    }
     // Cancel any pending section-pin timers so a re-render can't fire on a
     // detached card (e.g. after navigating away during the grace period).
     for (const map of [this._sectionPins, this._zonePins]) {
